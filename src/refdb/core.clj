@@ -90,7 +90,9 @@
    `(update! ~coll ~(name coll) ~f ~path ~@args)))
 
 (defmacro with-refdb-path [path-to-files & body]
-  `(binding [*path* ~path-to-files]
+  `(binding [*path* (if (instance? java.io.File ~path-to-files)
+                      (.getCanonicalPath ~path-to-files)
+                      ~path-to-files)]
      ~@body))
 
 (defn wrap-refdb [handler path-to-files]
