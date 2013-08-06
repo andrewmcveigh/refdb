@@ -5,14 +5,24 @@ simple "database".
 
 ## Usage
 
+Refdb needs to know where it can find it's files. It gets this from
+`#'refdb.core/*path*`.
+
+Helpers `#'refdb.core/with-refdb-path` and `#'refdb.core/wrap-refdb can be used
+to set the path in a flexible way.
+
 ```clojure
-> (def collection (ref nil))
+> (with-refdb-path "/path/to/files"
 
-> (init! collection) ; call in initialisation
+>   (def collection (ref nil))
 
-> (destroy! collection)
+>   (init! collection) ; call in initialisation
 
-> (save! collection {:key val ...})
+>   (destroy! collection)
+
+>   (save! collection {:key val ...})
+
+> )
 ```
 
 ## License

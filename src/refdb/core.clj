@@ -4,21 +4,17 @@
     [clojure.java.io :as io]
     [clojure.string :as string]))
 
+(declare ^:dynamic *path*)
+
 (defn join-path [& args]
   {:pre [(every? (comp not nil?) args)]}
   (let [ensure-no-delims #(string/replace % #"(?:^/)|(?:/$)" "")]
     (str (when (.startsWith (first args) "/") \/)
          (string/join "/" (map ensure-no-delims args)))))
 
-(defn resource [& path-fragments]
-  (let [path (io/as-file
-               (apply join-path
-                      (System/getProperty "resource.path")
-                      path-fragments))]
-    (if (.exists path)
-      path
-      (io/as-file
-        (or (io/resource (apply join-path path-fragments)) path)))))
+(defn coll-file [coll-name]
+  {:pre [(bound? #'*path*)]}
+  (io/file (join-path *path* (format "%s.clj" coll-name))))
 
 (defn literal? [x]
   (or (true? x) (false? x) (keyword? x) (string? x) (number? x)))
@@ -27,13 +23,14 @@
   (instance? java.util.regex.Pattern x))
 
 (defmacro init! [coll]
-  `(let [file# (resource ~(format "data/%s.clj" (name coll)))]
+  `(let [file# (coll-file ~(name coll))]
      (when (.exists file#)
        (dosync (ref-set ~coll (load-file (.getCanonicalPath file#)))))))
 
 (defn write! [coll coll-name]
-  (do (.mkdir (resource "data"))
-      (spit (resource (format "data/%s.clj" coll-name)) (pr-str @coll))))
+  {:pre [(bound? #'*path*)]}
+  (do (.mkdir (io/file *path*))
+      (spit (coll-file coll-name) (pr-str @coll))))
 
 (defmacro destroy! [coll]
   `(do (dosync (ref-set ~coll {}))
@@ -76,3 +73,12 @@
 
 (defmacro save! [coll m]
   `(save!* ~coll ~(name coll) ~m))
+
+(defmacro with-refdb-path [path-to-files & body]
+  `(binding [*path* ~path-to-files]
+     ~@body))
+
+(defn wrap-refdb [handler path-to-files]
+  (fn [request]
+    (with-refdb-path path-to-files
+      (handler request))))
