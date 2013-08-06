@@ -60,6 +60,7 @@
    (find coll (apply hash-map (concat [k v] kvs)))))
 
 (defn save!* [coll coll-name m]
+  {:pre [(map? m)]}
   (let [id (or (:id m) (get-id coll))
         m (assoc m :id id)
         exists? (get coll id)]
@@ -71,8 +72,22 @@
     (write! coll coll-name)
     m))
 
-(defmacro save! [coll m]
-  `(save!* ~coll ~(name coll) ~m))
+(defn update! [coll coll-name f [id & path] & args]
+  {:pre [(fn? f) (integer? id) (sequential? path)]}
+  (let [exists? (get coll id)]
+    (dosync
+      (apply alter coll f (concat [:items id] path) args)
+      (when-not exists?
+        (alter coll update-in [:last-id] (fnil max 0) id)
+        (alter coll update-in [:count] (fnil inc 0))))
+    (write! coll coll-name)
+    id))
+
+(defmacro save!
+  ([coll m]
+   `(save!* ~coll ~(name coll) ~m))
+  ([coll f path & args]
+   `(update! ~coll ~(name coll) ~f ~path ~@args)))
 
 (defmacro with-refdb-path [path-to-files & body]
   `(binding [*path* ~path-to-files]
