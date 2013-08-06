@@ -22,6 +22,10 @@ used to set the path in a flexible way.
 
 >   (save! collection {:key val ...})
 
+>   (save! collection assoc-in [0 :key1] {:key val ...})
+
+>   (save! collection update-in [0 :key2] inc)
+
 > )
 ```
 
