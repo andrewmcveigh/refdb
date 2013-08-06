@@ -80,5 +80,4 @@
 
 (defn wrap-refdb [handler path-to-files]
   (fn [request]
-    (with-refdb-path path-to-files
-      (handler request))))
+    (with-refdb-path path-to-files (handler request))))
