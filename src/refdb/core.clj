@@ -1,6 +1,7 @@
 (ns refdb.core
   (:refer-clojure :exclude [get find])
   (:require
+    [clojure.edn :as edn]
     [clojure.java.io :as io]
     [clojure.string :as string]))
 
@@ -16,21 +17,37 @@
   {:pre [(bound? #'*path*)]}
   (io/file (join-path *path* (format "%s.clj" coll-name))))
 
+(defn meta-file [coll-name]
+  {:pre [(bound? #'*path*)]}
+  (io/file (join-path *path* (format "%s.meta.clj" coll-name))))
+
 (defn literal? [x]
   (or (true? x) (false? x) (keyword? x) (string? x) (number? x)))
 
 (defn regex? [x]
   (instance? java.util.regex.Pattern x))
 
+(defn init!* [coll meta-file coll-file]
+  (when (.exists meta-file)
+    (dosync
+      (ref-set coll (load-file (.getCanonicalPath meta-file)))
+      (when (.exists coll-file)
+        (with-open [reader (java.io.PushbackReader. (io/reader coll-file))]
+          (loop []
+            (when-let [{:keys [id] :as form} (edn/read {:eof nil} reader)]
+              (do (alter coll assoc-in [:items id] form)
+                  (recur)))))))))
+
 (defmacro init! [coll]
-  `(let [file# (coll-file ~(name coll))]
-     (when (.exists file#)
-       (dosync (ref-set ~coll (load-file (.getCanonicalPath file#)))))))
+  `(init!* ~coll (meta-file ~(name coll)) (coll-file ~(name coll))))
 
 (defn write! [coll coll-name]
   {:pre [(bound? #'*path*)]}
   (do (.mkdir (io/file *path*))
-      (spit (coll-file coll-name) (pr-str @coll))))
+      (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
+      (doall
+        (map (comp #(spit (coll-file coll-name) % :append true) prn-str)
+             (vals (:items @coll))))))
 
 (defmacro destroy! [coll]
   `(do (dosync (ref-set ~coll {}))
