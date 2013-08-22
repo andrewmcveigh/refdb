@@ -45,6 +45,7 @@
   {:pre [(bound? #'*path*)]}
   (do (.mkdir (io/file *path*))
       (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
+      (spit (coll-file coll-name) "")
       (doall
         (map (comp #(spit (coll-file coll-name) % :append true) prn-str)
              (vals (:items @coll))))))
