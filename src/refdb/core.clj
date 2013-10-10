@@ -21,10 +21,14 @@
   {:pre [(bound? #'*path*)]}
   (io/file (join-path *path* (format "%s.meta.clj" coll-name))))
 
-(defn literal? [x]
+(defn literal?
+  "Is x a literal value, I.E, is x a string, number, keyword or true/false."
+  [x]
   (or (true? x) (false? x) (keyword? x) (string? x) (number? x)))
 
-(defn regex? [x]
+(defn regex?
+  "Is x a regex pattern?"
+  [x]
   (instance? java.util.regex.Pattern x))
 
 (defn init!* [coll meta-file coll-file]
@@ -35,35 +39,53 @@
         (with-open [reader (java.io.PushbackReader. (io/reader coll-file))]
           (loop []
             (when-let [{:keys [id] :as form} (edn/read {:eof nil} reader)]
-              (do (alter coll assoc-in [:items id] form)
+              (do (alter coll update-in [:items id] (fnil conj (list)) form)
                   (recur)))))))))
 
-(defmacro init! [coll]
+(defmacro init!
+  "Initializes the collection from the filesystem."
+  [coll]
   `(init!* ~coll (meta-file ~(name coll)) (coll-file ~(name coll))))
 
-(defn write! [coll coll-name]
-  {:pre [(bound? #'*path*)]}
-  (do (.mkdir (io/file *path*))
-      (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
-      (spit (coll-file coll-name) "")
-      (doall
-        (map (comp #(spit (coll-file coll-name) % :append true) prn-str)
-             (vals (:items @coll))))))
+(defn write!
+  "Persists coll to permanent storage."
+  ([coll coll-name]
+   {:pre [(bound? #'*path*)]}
+   (write! coll coll-name nil))
+  ([coll coll-name record]
+   (.mkdir (io/file *path*))
+   (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
+   (if record
+     (spit (coll-file coll-name) (prn-str record) :append true)
+     (do (spit (coll-file coll-name) "")
+         (doall
+           (map (comp #(spit (coll-file coll-name) % :append true) prn-str)
+                (apply concat (vals (:items @coll)))))))))
 
-(defmacro destroy! [coll]
+(defmacro destroy!
+  "Resets the collection, and the file associated."
+  [coll]
   `(do (dosync (ref-set ~coll {}))
        (write! ~coll ~(name coll))))
 
-(defn get-id [coll]
+(defn get-id
+  "Gets a the next available ID for the database."
+  [coll]
   (dosync (alter coll update-in [:last-id] (fnil inc -1)))
   (:last-id @coll))
 
-(defn get [coll id]
-  (get-in @coll [:items id]))
+(defn get
+  "Gets an item from the collection by id."
+  [coll id]
+  (first (get-in @coll [:items id])))
 
-(defn pred-match? [pred item]
+(defn pred-match?
+  "Returns truthy if the predicate, pred matches the item. If the predicate is
+  nil or empty {}, returns true."
+  [pred item]
   (let [?fn (condp = (::? (meta pred)) ::and every? ::or some every?)]
-    (cond (vector? pred)
+    (cond (or (nil? pred) (empty? pred)) true
+          (vector? pred)
           (?fn #(pred-match? % item) pred)
           (map? pred)
           (?fn (fn [[k v]]
@@ -72,21 +94,32 @@
                          (regex? v) (re-seq v value)
                          :else (v (k item)))))
                pred)
-          (nil? pred) true)))
+          :default nil)))
 
 (defn find
+  "Finds an item, or items in the collection by predicate. The predicate should
+  be a map of {:keyname \"wanted value\"}. The default query operation is ?and,
+  however specifying separate level ?and/?or operations is possible. E.G.,
+
+  (find coll (?or (?and {:first-name \"Benjamin\" :surname \"Netanyahu\"})
+                  (?and {:first-name \"Kofi\" :surname\"Annan\"})))
+
+  If the predicate is nil or empty {}, returns all items."
   ([coll pred]
-   (filter (partial pred-match? pred) (vals (:items @coll))))
+   (map first
+        (filter (comp (partial pred-match? pred) first) (vals (:items @coll)))))
   ([coll k v & kvs]
    (find coll (apply hash-map (concat [k v] kvs)))))
 
 (defn ?and
+  "Creates ?and operation predicate."
   ([pred]
    (with-meta pred {::? ::and}))
   ([head & tail]
    (with-meta `[~head ~@tail] {::? ::and})))
 
 (defn ?or
+  "Creates ?or operation predicate."
   ([pred]
    (with-meta pred {::? ::or}))
   ([head & tail]
@@ -98,36 +131,70 @@
         m (assoc m :id id)
         exists? (get coll id)]
     (dosync
-      (alter coll assoc-in [:items id] m)
+      (alter coll update-in [:items id] (fnil conj (list)) m)
       (when-not exists?
         (alter coll update-in [:last-id] (fnil max 0) id)
         (alter coll update-in [:count] (fnil inc 0))))
-    (write! coll coll-name)
+    (write! coll coll-name m)
     m))
 
-(defn update! [coll coll-name f [id & path] & args]
+(defn fupdate-in
+  ([m [k & ks] f & args]
+   (if ks
+     (assoc m k (apply fupdate-in (clojure.core/get m k) ks f args))
+     (assoc m k (let [coll (clojure.core/get m k)]
+                  (conj coll (apply f (first coll) args)))))))
+
+(defn update!* [coll coll-name f [id & path] & args]
   {:pre [(fn? f) (integer? id) (sequential? path)]}
   (let [exists? (get coll id)]
     (dosync
-      (apply alter coll f (concat [:items id] path) args)
+      (apply alter coll fupdate-in [:items id] f path args)
+      (alter coll fupdate-in [:items id] assoc :id id)
       (when-not exists?
         (alter coll update-in [:last-id] (fnil max 0) id)
         (alter coll update-in [:count] (fnil inc 0))))
-    (write! coll coll-name)
-    id))
+    (let [m (get coll id)]
+      (write! coll coll-name m)
+      m)))
 
 (defmacro save!
+  "Saves item m to coll."
   ([coll m]
    `(save!* ~coll ~(name coll) ~m))
   ([coll f path & args]
-   `(update! ~coll ~(name coll) ~f ~path ~@args)))
+   `(update!* ~coll ~(name coll) ~f ~path ~@args)))
 
-(defmacro with-refdb-path [path-to-files & body]
+(defmacro with-refdb-path
+  "Sets the file path context for the body to operate in."
+  [path-to-files & body]
   `(binding [*path* (if (instance? java.io.File ~path-to-files)
                       (.getCanonicalPath ~path-to-files)
                       ~path-to-files)]
      ~@body))
 
-(defn wrap-refdb [handler path-to-files]
+(defn wrap-refdb
+  "Wraps the file path context in a ring middleware function."
+  [handler path-to-files]
   (fn [request]
     (with-refdb-path path-to-files (handler request))))
+
+(defn history
+  "Returns n items from the history of the record. If n is not specified, all
+  history is returned"
+  ([coll {id :id :as record} n]
+   (let [past (next (get-in @coll [:items id]))]
+     (if n
+       (take n past)
+       past)))
+  ([coll record]
+   (history coll record nil)))
+
+(defn previous
+  "Returns the nth last historical value for the record. If n is not specified,
+  the latest historical value before the current value of the record. If record
+  is a historical value, previous will return the latest nth value before it."
+  ([coll record n]
+   (nth (history coll record) n))
+  ([coll record]
+   (previous coll record 0)))
