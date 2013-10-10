@@ -3,6 +3,37 @@
 A Clojure library designed to utilise a clojure Ref, and the filesytem as a
 simple "database".
 
+## Artifacts
+
+`cljs-time` artifacts are [released to Clojars](https://clojars.org/com.andrewmcveigh/refdb).
+
+If you are using Maven, add the following repository definition to your `pom.xml`:
+
+``` xml
+<repository>
+  <id>clojars.org</id>
+  <url>http://clojars.org/repo</url>
+</repository>
+```
+
+### The Most Recent Release
+
+With Leiningen:
+
+``` clj
+[com.andrewmcveigh/refdb "0.1.0"]
+```
+
+With Maven:
+
+``` xml
+<dependency>
+  <groupId>com.andrewmcveigh</groupId>
+  <artifactId>refdb</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
 ## Usage
 
 Refdb needs to know where it can find it's files. It gets this from
@@ -32,3 +63,5 @@ used to set the path in a flexible way.
 ## License
 
 Copyright © 2013 Andrew Mcveigh
+
+Distributed under the Eclipse Public License, the same as Clojure.
