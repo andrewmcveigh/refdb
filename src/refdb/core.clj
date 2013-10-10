@@ -38,7 +38,9 @@
               (do (alter coll assoc-in [:items id] form)
                   (recur)))))))))
 
-(defmacro init! [coll]
+(defmacro init!
+  "Initializes the collection from the filesystem."
+  [coll]
   `(init!* ~coll (meta-file ~(name coll)) (coll-file ~(name coll))))
 
 (defn write! [coll coll-name]
@@ -50,15 +52,21 @@
         (map (comp #(spit (coll-file coll-name) % :append true) prn-str)
              (vals (:items @coll))))))
 
-(defmacro destroy! [coll]
+(defmacro destroy!
+  "Resets the collection, and the file associated."
+  [coll]
   `(do (dosync (ref-set ~coll {}))
        (write! ~coll ~(name coll))))
 
-(defn get-id [coll]
+(defn get-id
+  "Gets a the next available ID for the database."
+  [coll]
   (dosync (alter coll update-in [:last-id] (fnil inc -1)))
   (:last-id @coll))
 
-(defn get [coll id]
+(defn get
+  "Gets an item from the collection by id."
+  [coll id]
   (get-in @coll [:items id]))
 
 (defn pred-match? [pred item]
@@ -75,18 +83,26 @@
           (nil? pred) true)))
 
 (defn find
+  "Finds an item, or items in the collection by predicate. The predicate should
+  be a map of {:keyname \"wanted value\"}. The default query operation is ?and,
+  however specifying separate level ?and/?or operations is possible. E.G.,
+
+  (find coll (?or (?and {:first-name \"Benjamin\" :surname \"Netanyahu\"})
+                  (?and {:first-name \"Kofi\" :surname\"Annan\"})))"
   ([coll pred]
    (filter (partial pred-match? pred) (vals (:items @coll))))
   ([coll k v & kvs]
    (find coll (apply hash-map (concat [k v] kvs)))))
 
 (defn ?and
+  "Creates ?and operation predicate."
   ([pred]
    (with-meta pred {::? ::and}))
   ([head & tail]
    (with-meta `[~head ~@tail] {::? ::and})))
 
 (defn ?or
+  "Creates ?or operation predicate."
   ([pred]
    (with-meta pred {::? ::or}))
   ([head & tail]
@@ -105,7 +121,7 @@
     (write! coll coll-name)
     m))
 
-(defn update! [coll coll-name f [id & path] & args]
+(defn update!* [coll coll-name f [id & path] & args]
   {:pre [(fn? f) (integer? id) (sequential? path)]}
   (let [exists? (get coll id)]
     (dosync
@@ -117,10 +133,11 @@
     id))
 
 (defmacro save!
+  "Saves item m to coll."
   ([coll m]
    `(save!* ~coll ~(name coll) ~m))
   ([coll f path & args]
-   `(update! ~coll ~(name coll) ~f ~path ~@args)))
+   `(update!* ~coll ~(name coll) ~f ~path ~@args)))
 
 (defmacro with-refdb-path [path-to-files & body]
   `(binding [*path* (if (instance? java.io.File ~path-to-files)
