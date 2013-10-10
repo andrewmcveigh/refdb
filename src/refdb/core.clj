@@ -61,21 +61,36 @@
 (defn get [coll id]
   (get-in @coll [:items id]))
 
-(defn any-pred-match? [pred item]
-  (if (seq pred)
-    (some (fn [[k v]]
-            (let [value (k item)]
-              (cond (literal? v) (= value v)
-                    (regex? v) (re-seq v value)
-                    :else (v (k item)))))
-          pred)
-    true))
+(defn pred-match? [pred item]
+  (let [?fn (condp = (::? (meta pred)) ::and every? ::or some every?)]
+    (cond (vector? pred)
+          (?fn #(pred-match? % item) pred)
+          (map? pred)
+          (?fn (fn [[k v]]
+                 (let [value (k item)]
+                   (cond (literal? v) (= value v)
+                         (regex? v) (re-seq v value)
+                         :else (v (k item)))))
+               pred)
+          (nil? pred) true)))
 
 (defn find
   ([coll pred]
-   (filter (partial any-pred-match? pred) (vals (:items @coll))))
+   (filter (partial pred-match? pred) (vals (:items @coll))))
   ([coll k v & kvs]
    (find coll (apply hash-map (concat [k v] kvs)))))
+
+(defn ?and
+  ([pred]
+   (with-meta pred {::? ::and}))
+  ([head & tail]
+   (with-meta `[~head ~@tail] {::? ::and})))
+
+(defn ?or
+  ([pred]
+   (with-meta pred {::? ::or}))
+  ([head & tail]
+   (with-meta `[~head ~@tail] {::? ::or})))
 
 (defn save!* [coll coll-name m]
   {:pre [(map? m)]}
