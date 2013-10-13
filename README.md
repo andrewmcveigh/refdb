@@ -5,7 +5,7 @@ simple "database".
 
 ## Artifacts
 
-`cljs-time` artifacts are [released to Clojars](https://clojars.org/com.andrewmcveigh/refdb).
+`refdb` artifacts are [released to Clojars](https://clojars.org/com.andrewmcveigh/refdb).
 
 If you are using Maven, add the following repository definition to your `pom.xml`:
 
