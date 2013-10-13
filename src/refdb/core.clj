@@ -75,9 +75,13 @@
   [coll id]
   (get-in @coll [:items id]))
 
-(defn pred-match? [pred item]
+(defn pred-match?
+  "Returns truthy if the predicate, pred matches the item. If the predicate is
+  nil or empty {}, returns true."
+  [pred item]
   (let [?fn (condp = (::? (meta pred)) ::and every? ::or some every?)]
-    (cond (vector? pred)
+    (cond (or (nil? pred) (empty? pred)) true
+          (vector? pred)
           (?fn #(pred-match? % item) pred)
           (map? pred)
           (?fn (fn [[k v]]
@@ -86,7 +90,7 @@
                          (regex? v) (re-seq v value)
                          :else (v (k item)))))
                pred)
-          (nil? pred) true)))
+          :default nil)))
 
 (defn find
   "Finds an item, or items in the collection by predicate. The predicate should
@@ -94,7 +98,9 @@
   however specifying separate level ?and/?or operations is possible. E.G.,
 
   (find coll (?or (?and {:first-name \"Benjamin\" :surname \"Netanyahu\"})
-                  (?and {:first-name \"Kofi\" :surname\"Annan\"})))"
+                  (?and {:first-name \"Kofi\" :surname\"Annan\"})))
+
+  If the predicate is nil or empty {}, returns all items."
   ([coll pred]
    (filter (partial pred-match? pred) (vals (:items @coll))))
   ([coll k v & kvs]
