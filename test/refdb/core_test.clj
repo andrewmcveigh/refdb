@@ -14,9 +14,10 @@
         (db/save! coll1 (assoc res :t 6))
         (is (= 6 (:t (first (db/find coll1 {:m 2}))))))
       (db/destroy! coll1)
-      (is (= nil (load-file (str (db/coll-file "coll1")))))
+      (is (nil? (load-file (str (db/coll-file "coll1")))))
+      (db/save! coll1 assoc-in [1 :test1 :test2 :thsteh] 2)
       (db/save! coll1 assoc-in [3 :test :test2 :thsteh] 2)
-      (is (= {:test {:test2 {:thsteh 2}}} (db/get coll1 3))))))
+      (is (= {:id 3 :test {:test2 {:thsteh 2}}} (db/get coll1 3))))))
 
 (deftest and-or-test
   (let [coll1 (ref nil)

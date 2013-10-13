@@ -150,11 +150,13 @@
   (let [exists? (get coll id)]
     (dosync
       (apply alter coll fupdate-in [:items id] f path args)
+      (alter coll fupdate-in [:items id] assoc :id id)
       (when-not exists?
         (alter coll update-in [:last-id] (fnil max 0) id)
         (alter coll update-in [:count] (fnil inc 0))))
-    (write! coll coll-name)
-    id))
+    (let [m (get coll id)]
+      (write! coll coll-name m)
+      m)))
 
 (defmacro save!
   "Saves item m to coll."
