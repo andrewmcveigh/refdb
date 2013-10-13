@@ -38,3 +38,20 @@
                                        (db/?and (db/?or {:m 4 :f 2})
                                                 (db/?or {:e 5 :m 3})))))))
       (db/destroy! coll1))))
+
+(deftest history-test
+  (let [coll1 (ref nil)
+        path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))]
+    (db/with-refdb-path path
+      (is (nil? (db/init! coll1)))
+      (let [{id :id :as saved} (db/save! coll1 {:m 1})]
+        (db/save! coll1 (assoc saved :a 2))
+        (db/save! coll1 (assoc saved :b 3))
+        (is (= [{:id id :m 1 :a 2} {:id id :m 1}]
+               (db/history coll1 saved)))
+        (is (= {:m 1 :a 2 :id id} (db/previous coll1 saved)))
+        (dosync (ref-set coll1 nil))
+        (db/init! coll1)
+        (is (= [{:id id :m 1 :a 2} {:id id :m 1}]
+               (db/history coll1 (first (db/find coll1 nil))))))
+      (db/destroy! coll1))))

@@ -39,7 +39,7 @@
         (with-open [reader (java.io.PushbackReader. (io/reader coll-file))]
           (loop []
             (when-let [{:keys [id] :as form} (edn/read {:eof nil} reader)]
-              (do (alter coll assoc-in [:items id] form)
+              (do (alter coll update-in [:items id] (fnil conj (list)) form)
                   (recur)))))))))
 
 (defmacro init!
@@ -48,15 +48,19 @@
   `(init!* ~coll (meta-file ~(name coll)) (coll-file ~(name coll))))
 
 (defn write!
-  "Persists the coll to permanent storage."
-  [coll coll-name]
-  {:pre [(bound? #'*path*)]}
-  (do (.mkdir (io/file *path*))
-      (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
-      (spit (coll-file coll-name) "")
-      (doall
-        (map (comp #(spit (coll-file coll-name) % :append true) prn-str)
-             (vals (:items @coll))))))
+  "Persists coll to permanent storage."
+  ([coll coll-name]
+   {:pre [(bound? #'*path*)]}
+   (write! coll coll-name nil))
+  ([coll coll-name record]
+   (.mkdir (io/file *path*))
+   (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
+   (if record
+     (spit (coll-file coll-name) (prn-str record) :append true)
+     (do (spit (coll-file coll-name) "")
+         (doall
+           (map (comp #(spit (coll-file coll-name) % :append true) prn-str)
+                (apply concat (vals (:items @coll)))))))))
 
 (defmacro destroy!
   "Resets the collection, and the file associated."
@@ -73,7 +77,7 @@
 (defn get
   "Gets an item from the collection by id."
   [coll id]
-  (get-in @coll [:items id]))
+  (first (get-in @coll [:items id])))
 
 (defn pred-match?
   "Returns truthy if the predicate, pred matches the item. If the predicate is
@@ -102,7 +106,8 @@
 
   If the predicate is nil or empty {}, returns all items."
   ([coll pred]
-   (filter (partial pred-match? pred) (vals (:items @coll))))
+   (map first
+        (filter (comp (partial pred-match? pred) first) (vals (:items @coll)))))
   ([coll k v & kvs]
    (find coll (apply hash-map (concat [k v] kvs)))))
 
@@ -126,18 +131,25 @@
         m (assoc m :id id)
         exists? (get coll id)]
     (dosync
-      (alter coll assoc-in [:items id] m)
+      (alter coll update-in [:items id] (fnil conj (list)) m)
       (when-not exists?
         (alter coll update-in [:last-id] (fnil max 0) id)
         (alter coll update-in [:count] (fnil inc 0))))
-    (write! coll coll-name)
+    (write! coll coll-name m)
     m))
+
+(defn fupdate-in
+  ([m [k & ks] f & args]
+   (if ks
+     (assoc m k (apply fupdate-in (clojure.core/get m k) ks f args))
+     (assoc m k (let [coll (clojure.core/get m k)]
+                  (conj coll (apply f (first coll) args)))))))
 
 (defn update!* [coll coll-name f [id & path] & args]
   {:pre [(fn? f) (integer? id) (sequential? path)]}
   (let [exists? (get coll id)]
     (dosync
-      (apply alter coll f (concat [:items id] path) args)
+      (apply alter coll fupdate-in [:items id] f path args)
       (when-not exists?
         (alter coll update-in [:last-id] (fnil max 0) id)
         (alter coll update-in [:count] (fnil inc 0))))
@@ -168,14 +180,19 @@
 (defn history
   "Returns n items from the history of the record. If n is not specified, all
   history is returned"
-  ([record n])
-  ([record]
-   (history nil)))
+  ([coll {id :id :as record} n]
+   (let [past (next (get-in @coll [:items id]))]
+     (if n
+       (take n past)
+       past)))
+  ([coll record]
+   (history coll record nil)))
 
 (defn previous
   "Returns the nth last historical value for the record. If n is not specified,
   the latest historical value before the current value of the record. If record
   is a historical value, previous will return the latest nth value before it."
-  ([record n])
-  ([record]
-   (previous 0)))
+  ([coll record n]
+   (nth (history coll record) n))
+  ([coll record]
+   (previous coll record 0)))
