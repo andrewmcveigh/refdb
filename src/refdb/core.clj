@@ -21,10 +21,14 @@
   {:pre [(bound? #'*path*)]}
   (io/file (join-path *path* (format "%s.meta.clj" coll-name))))
 
-(defn literal? [x]
+(defn literal?
+  "Is x a literal value, I.E, is x a string, number, keyword or true/false."
+  [x]
   (or (true? x) (false? x) (keyword? x) (string? x) (number? x)))
 
-(defn regex? [x]
+(defn regex?
+  "Is x a regex pattern?"
+  [x]
   (instance? java.util.regex.Pattern x))
 
 (defn init!* [coll meta-file coll-file]
@@ -43,7 +47,9 @@
   [coll]
   `(init!* ~coll (meta-file ~(name coll)) (coll-file ~(name coll))))
 
-(defn write! [coll coll-name]
+(defn write!
+  "Persists the coll to permanent storage."
+  [coll coll-name]
   {:pre [(bound? #'*path*)]}
   (do (.mkdir (io/file *path*))
       (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
