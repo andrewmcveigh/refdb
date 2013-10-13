@@ -139,12 +139,31 @@
   ([coll f path & args]
    `(update!* ~coll ~(name coll) ~f ~path ~@args)))
 
-(defmacro with-refdb-path [path-to-files & body]
+(defmacro with-refdb-path
+  "Sets the file path context for the body to operate in."
+  [path-to-files & body]
   `(binding [*path* (if (instance? java.io.File ~path-to-files)
                       (.getCanonicalPath ~path-to-files)
                       ~path-to-files)]
      ~@body))
 
-(defn wrap-refdb [handler path-to-files]
+(defn wrap-refdb
+  "Wraps the file path context in a ring middleware function."
+  [handler path-to-files]
   (fn [request]
     (with-refdb-path path-to-files (handler request))))
+
+(defn history
+  "Returns n items from the history of the record. If n is not specified, all
+  history is returned"
+  ([record n])
+  ([record]
+   (history nil)))
+
+(defn previous
+  "Returns the nth last historical value for the record. If n is not specified,
+  the latest historical value before the current value of the record. If record
+  is a historical value, previous will return the latest nth value before it."
+  ([record n])
+  ([record]
+   (previous 0)))
