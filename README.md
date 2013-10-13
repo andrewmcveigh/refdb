@@ -21,18 +21,10 @@ If you are using Maven, add the following repository definition to your `pom.xml
 With Leiningen:
 
 ``` clj
-[com.andrewmcveigh/refdb "0.1.0"]
+[com.andrewmcveigh/refdb "0.1.2"]
 ```
 
-With Maven:
-
-``` xml
-<dependency>
-  <groupId>com.andrewmcveigh</groupId>
-  <artifactId>refdb</artifactId>
-  <version>0.1.0</version>
-</dependency>
-```
+The most recent release [can be found on Clojars](https://clojars.org/com.andrewmcveigh/refdb).
 
 ## Usage
 
