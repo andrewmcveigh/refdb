@@ -15,8 +15,8 @@
         (is (= 6 (:t (first (db/find coll1 {:m 2}))))))
       (db/destroy! coll1)
       (is (nil? (load-file (str (db/coll-file "coll1")))))
-      (db/save! coll1 assoc-in [1 :test1 :test2 :thsteh] 2)
-      (db/save! coll1 assoc-in [3 :test :test2 :thsteh] 2)
+      (db/update! coll1 1 assoc-in [:test1 :test2 :thsteh] 2)
+      (db/update! coll1 3 assoc-in [:test :test2 :thsteh] 2)
       (is (= {:id 3 :test {:test2 {:thsteh 2}}} (db/get coll1 3))))))
 
 (deftest and-or-test
