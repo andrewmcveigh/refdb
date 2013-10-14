@@ -134,7 +134,9 @@
 (defn save!* [coll coll-name m]
   {:pre [(map? m)]}
   (let [id (or (:id m) (get-id coll))
-        m (assoc m :id id)
+        m (assoc m
+                 :id id
+                 :inst (java.util.Date.))
         exists? (get coll id)]
     (dosync
       (alter coll update-in [:items id] (fnil conj (list)) m)
@@ -152,7 +154,7 @@
           (sequential? ~m)
           (doall (map (partial save!* ~coll ~(name coll)) ~m))
           :else (throw (ex-info "Argument `m` must be either a map, or a sequential collection."
-                                {:type ::invalid-argument :m m}))))
+                                {:type ::invalid-argument :m ~m}))))
   ([coll m & more]
    `(save! (conj ~m ~more))))
 
@@ -168,7 +170,7 @@
   (let [exists? (get coll id)]
     (dosync
       (apply alter coll fupdate-in [:items id] f path args)
-      (alter coll fupdate-in [:items id] assoc :id id)
+      (alter coll fupdate-in [:items id] assoc :id id :inst (java.util.Date.))
       (when-not exists?
         (alter coll update-in [:last-id] (fnil max 0) id)
         (alter coll update-in [:count] (fnil inc 0))))

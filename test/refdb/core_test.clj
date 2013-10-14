@@ -17,7 +17,8 @@
       (is (nil? (load-file (str (db/coll-file "coll1")))))
       (db/update! coll1 1 assoc-in [:test1 :test2 :thsteh] 2)
       (db/update! coll1 3 assoc-in [:test :test2 :thsteh] 2)
-      (is (= {:id 3 :test {:test2 {:thsteh 2}}} (db/get coll1 3))))))
+      (is (= {:id 3 :test {:test2 {:thsteh 2}}}
+             (dissoc (db/get coll1 3) :inst))))))
 
 (deftest and-or-test
   (let [coll1 (ref nil)
@@ -34,7 +35,7 @@
       (is (= 2 (count (db/find coll1 (db/?or (db/?and {:m 4 :f 3})
                                              (db/?and {:m 2 :f 1}))))))
       (is (= [{:m 3 :f 2 :e 4} {:m 4 :f 3 :e 5}]
-             (sort-by :m (map #(dissoc % :id)
+             (sort-by :m (map #(dissoc % :id :inst)
                               (db/find coll1
                                        (db/?and (db/?or {:m 4 :f 2})
                                                 (db/?or {:e 5 :m 3})))))))
@@ -49,10 +50,13 @@
         (db/save! coll1 (assoc saved :a 2))
         (db/save! coll1 (assoc saved :b 3))
         (is (= [{:id id :m 1 :a 2} {:id id :m 1}]
-               (db/history coll1 saved)))
-        (is (= {:m 1 :a 2 :id id} (db/previous coll1 saved)))
+               (map #(dissoc % :inst)
+                    (db/history coll1 saved))))
+        (is (= {:m 1 :a 2 :id id}
+               (dissoc (db/previous coll1 saved) :inst)))
         (dosync (ref-set coll1 nil))
         (db/init! coll1)
         (is (= [{:id id :m 1 :a 2} {:id id :m 1}]
-               (db/history coll1 (first (db/find coll1 nil))))))
+               (map #(dissoc % :inst)
+                    (db/history coll1 (first (db/find coll1 nil)))))))
       (db/destroy! coll1))))
