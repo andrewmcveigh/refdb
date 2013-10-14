@@ -21,10 +21,15 @@ If you are using Maven, add the following repository definition to your `pom.xml
 With Leiningen:
 
 ``` clj
-[com.andrewmcveigh/refdb "0.1.2"]
+[com.andrewmcveigh/refdb "0.1.3"]
 ```
 
 The most recent release [can be found on Clojars](https://clojars.org/com.andrewmcveigh/refdb).
+
+## Documentation
+
+The complete [API documentation](http://andrewmcveigh.github.io/refdb/uberdoc.html)
+is also available (marginalia generated).
 
 ## Usage
 
