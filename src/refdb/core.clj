@@ -146,6 +146,15 @@
     (write! coll coll-name m)
     m))
 
+{:meta {:action :retire}
+ :sync (fn []
+         (alter coll update-in [:items id] (fnil conj (list)) m)
+         (when-not exists?
+           (alter coll update-in [:last-id] (fnil max 0) id)
+           (alter coll update-in [:count] (fnil inc 0))))
+ :after (write! coll coll-name m)
+ :inst (java.util.Date.)}
+
 (defmacro save!
   "Saves item(s) `m` to `coll`."
   ([coll m]
@@ -157,6 +166,10 @@
                                 {:type ::invalid-argument :m ~m}))))
   ([coll m & more]
    `(save! (conj ~m ~more))))
+
+(defmacro delete! [coll m]
+  {:pre [(:id m)]}
+  `(save! ~'coll ~(assoc m :deleted (java.util.Date.))))
 
 (defn fupdate-in
   ([m [k & ks] f & args]
@@ -180,7 +193,7 @@
 
 (defmacro update!
   "'Updates' item with id `id` by applying fn `f` with `args` to it. E.G.,
-  
+
     => (update! coll 3
                 update-in [:key1 0 :key2] assoc :x \"string content\")"
   [coll id f path & args]
