@@ -165,14 +165,22 @@
 (defmacro with-transaction [t & body]
   `(let [~'t2 ~(if (and (list? t) (= 'gensym (first t))) t `'~t)
          ~'body2 ~(vec (quote-sexprs body))
-         before# (mapv :before ~'body2)
+         before# (mapv :pre ~'body2)
          sync# (mapv :sync ~'body2)
-         after# (mapv :after ~'body2)]
+         after# (mapv :post ~'body2)
+         trans# {:name (name ~'t2)
+                 :meta ~(meta t)
+                 :inst (java.util.Date.)
+                 :pre before#
+                 :sync sync#
+                 :post after#}]
      (println "with-transaction:" ~'t2)
-     (clojure.pprint/pprint {:before before# :sync sync# :after after#})
-     {:before (eval before#)
-      :sync (dosync (eval sync#))
-      :after (eval after#)}))
+     (clojure.pprint/pprint trans#)
+     (-> trans#
+         (update-in [:pre] eval)
+         (update-in [:sync] #(dosync (eval %)))
+         (update-in [:post] eval)
+         :sync)))
 
 (defmacro save!
   "Saves item(s) `m` to `coll`."
@@ -190,19 +198,19 @@
                      (alter ~coll update-in [:last-id] (fnil max 0) id#)
                      (alter ~coll update-in [:count] (fnil inc 0)))
                    m#)
-           :after (write! ~coll ~(name coll) m#)})))
+           :post (write! ~coll ~(name coll) m#)})))
   ([coll m & more]
      `(doall (map #(save! ~coll %) (conj ~m ~more)))))
 
-(with-refdb-path "/tmp/"
-  (with-transaction retire
-    (save! test-coll {:test 0})
-    (save! test-coll {:nothing 2})))
+;; (with-refdb-path "/tmp/"
+;;   (with-transaction ^{:thing 1 :other 0} retire
+;;     (save! test-coll {:test 0})
+;;     (save! test-coll {:nothing 2})))
 
-(let [xx 888]
-  (with-transaction retire
-    {:sync (mapv inc [1 2 3 4 xx])}
-    {:sync (mapv inc [2 3 4 5])}))
+;; (let [xx 888]
+;;   (with-transaction retire
+;;     {:sync (mapv inc [1 2 3 4 xx])}
+;;     {:sync (mapv inc [2 3 4 5])}))
 
 (defmacro delete! [coll m]
   {:pre [(:id m)]}
