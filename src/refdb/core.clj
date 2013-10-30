@@ -163,7 +163,7 @@
      coll)))
 
 (defmacro with-transaction [t & body]
-  `(let [~'t2 ~(if (and (list? t) (= 'gensym (first t))) t `'~t)
+  `(let [~'t2 ~(if (and (sequential? t) (= `gensym (first t))) t `'~t)
          ~'body2 ~(vec (quote-sexprs body))
          before# (mapv :pre ~'body2)
          sync# (mapv :sync ~'body2)
@@ -174,8 +174,8 @@
                  :pre before#
                  :sync sync#
                  :post after#}]
-     (println "with-transaction:" ~'t2)
-     (clojure.pprint/pprint trans#)
+     ;(println "with-transaction:" ~'t2)
+     ;(clojure.pprint/pprint trans#)
      (-> trans#
          (update-in [:pre] eval)
          (update-in [:sync] #(dosync (eval %)))
@@ -185,9 +185,10 @@
 (defmacro save!
   "Saves item(s) `m` to `coll`."
   ([coll m]
-     {:pre [(map? m)]}
-     `(let [exists?# (and ~(:id m) (get ~coll ~(:id m)))
-            id# (or ~(:id m) (get-id ~coll))
+     `(let [m# ~m
+            _# (assert (map? m#) "Argument `m` must satisfy map?.")
+            exists?# (and (:id m#) (get ~coll (:id m#)))
+            id# (or (:id m#) (get-id ~coll))
             m# (assoc ~m
                  :id id#
                  :inst (java.util.Date.))]
