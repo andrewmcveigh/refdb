@@ -4,7 +4,8 @@
   (:require
     [clojure.edn :as edn]
     [clojure.java.io :as io]
-    [clojure.string :as string]))
+    [clojure.string :as string]
+    [riddley.walk :as walk]))
 
 (declare ^:dynamic *path*)
 
@@ -131,29 +132,61 @@
   ([head & tail]
    (with-meta `[~head ~@tail] {::? ::or})))
 
-(defn save!* [coll coll-name m]
-  {:pre [(map? m)]}
+(def test-coll (ref nil))
+
+(defmacro with-transaction [t & body]
+  `(let [~'t2 ~(if (and (list? t) (= 'gensym (first t))) t `'~t)
+         trns# ~(apply merge-with
+                             conj
+                             {:name `(keyword (name ~'t2))
+                              :meta `(meta ~'t2)
+                              :inst (java.util.Date.)
+                              :before []
+                              :sync []
+                              :after []}
+                             [{}]
+                            ; (map #(into {} (map (fn [[k v]] `[~k '~v]) %)) body)
+                             )
+         ;before# [~@(map :before body)]
+         ;; sync# (dosync [~@(map :sync body)])
+         ;; after# [~@(map :after body)]
+         ]
+     ;; {:before before# :sync sync# :after after#}
+     (walk/walk-exprs #(do (prn %) (= 'with-transaction %)) name '~@body)
+     ))
+
+(definline save!* [coll coll-name m]
   (let [id (or (:id m) (get-id coll))
         m (assoc m
-                 :id id
-                 :inst (java.util.Date.))
+            :id id
+            :inst (java.util.Date.))
         exists? (get coll id)]
-    (dosync
-      (alter coll update-in [:items id] (fnil conj (list)) m)
-      (when-not exists?
-        (alter coll update-in [:last-id] (fnil max 0) id)
-        (alter coll update-in [:count] (fnil inc 0))))
-    (write! coll coll-name m)
-    m))
+    (with-transaction (gensym "refdb-save!*_")
+      {:sync (do
+               (alter coll update-in [:items id] (fnil conj (list)) m)
+               (when-not exists?
+                 (alter coll update-in [:last-id] (fnil max 0) id)
+                 (alter coll update-in [:count] (fnil inc 0))))
+       :after (write! coll coll-name m)
+       :return m})))
 
-{:meta {:action :retire}
- :sync (fn []
-         (alter coll update-in [:items id] (fnil conj (list)) m)
-         (when-not exists?
-           (alter coll update-in [:last-id] (fnil max 0) id)
-           (alter coll update-in [:count] (fnil inc 0))))
- :after (write! coll coll-name m)
- :inst (java.util.Date.)}
+(with-transaction retire
+  (save!* test-coll "test-coll" {:test 0}))
+
+(walk/macroexpand-all '(let [n 1] (+ n 3) (save!* test-coll "test-coll" {:test 0})))
+
+;; (with-transaction over
+;;   (with-transaction ^{:test 999} retire
+;;     {:before (swap! ttttt conj 1)
+;;      :sync (do (swap! ttttt conj 2)
+;;                (map identity [1 3 5]))
+;;      :after (do (swap! ttttt conj 3)
+;;                 (list 'tett))}
+;;     {:before (swap! ttttt conj 4)
+;;      :sync (do (swap! ttttt conj 5)
+;;                (map #(str "") []))
+;;      :after (do (swap! ttttt conj 6)
+;;                 (list 3 3 7))}))
 
 (defmacro save!
   "Saves item(s) `m` to `coll`."
