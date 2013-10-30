@@ -56,6 +56,7 @@
    {:pre [(bound? #'*path*)]}
    (write! coll coll-name nil))
   ([coll coll-name record]
+   {:pre [(bound? #'*path*)]}
    (.mkdir (io/file *path*))
    (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
    (if record
@@ -134,71 +135,74 @@
 
 (def test-coll (ref nil))
 
+(defn quote-sexprs [coll]
+  (let [funcall? #(and (sequential? %)
+                       (or (= `with-transaction (first %))
+                           (#{'let* 'let 'do} (first %))
+                           (and (symbol? (first %))
+                                (or (fn? (first %))
+                                    (resolve (first %))))))]
+    (walk/walk-exprs
+     funcall?
+     (fn [expr]
+       (cond (#{'let* 'let} (first expr))
+             (apply list (concat (take 2 expr) (quote-sexprs (drop 2 expr))))
+             (= `with-transaction (first expr))
+             (quote-sexprs (first (drop 2 expr)))
+             :else
+             (apply list 'list
+                    (map #(cond (or (= 'do %)
+                                    (and (symbol? %)
+                                         (or (fn? %) (resolve %))))
+                                (list 'quote %)
+                                (funcall? %)
+                                (quote-sexprs %)
+                                :else %)
+                         expr))))
+     #{`with-transaction}
+     coll)))
+
 (defmacro with-transaction [t & body]
   `(let [~'t2 ~(if (and (list? t) (= 'gensym (first t))) t `'~t)
-         trns# ~(apply merge-with
-                             conj
-                             {:name `(keyword (name ~'t2))
-                              :meta `(meta ~'t2)
-                              :inst (java.util.Date.)
-                              :before []
-                              :sync []
-                              :after []}
-                             [{}]
-                            ; (map #(into {} (map (fn [[k v]] `[~k '~v]) %)) body)
-                             )
-         ;before# [~@(map :before body)]
-         ;; sync# (dosync [~@(map :sync body)])
-         ;; after# [~@(map :after body)]
-         ]
-     ;; {:before before# :sync sync# :after after#}
-     (walk/walk-exprs #(do (prn %) (= 'with-transaction %)) name '~@body)
-     ))
-
-(definline save!* [coll coll-name m]
-  (let [id (or (:id m) (get-id coll))
-        m (assoc m
-            :id id
-            :inst (java.util.Date.))
-        exists? (get coll id)]
-    (with-transaction (gensym "refdb-save!*_")
-      {:sync (do
-               (alter coll update-in [:items id] (fnil conj (list)) m)
-               (when-not exists?
-                 (alter coll update-in [:last-id] (fnil max 0) id)
-                 (alter coll update-in [:count] (fnil inc 0))))
-       :after (write! coll coll-name m)
-       :return m})))
-
-(with-transaction retire
-  (save!* test-coll "test-coll" {:test 0}))
-
-(walk/macroexpand-all '(let [n 1] (+ n 3) (save!* test-coll "test-coll" {:test 0})))
-
-;; (with-transaction over
-;;   (with-transaction ^{:test 999} retire
-;;     {:before (swap! ttttt conj 1)
-;;      :sync (do (swap! ttttt conj 2)
-;;                (map identity [1 3 5]))
-;;      :after (do (swap! ttttt conj 3)
-;;                 (list 'tett))}
-;;     {:before (swap! ttttt conj 4)
-;;      :sync (do (swap! ttttt conj 5)
-;;                (map #(str "") []))
-;;      :after (do (swap! ttttt conj 6)
-;;                 (list 3 3 7))}))
+         ~'body2 ~(vec (quote-sexprs body))
+         before# (mapv :before ~'body2)
+         sync# (mapv :sync ~'body2)
+         after# (mapv :after ~'body2)]
+     (println "with-transaction:" ~'t2)
+     (clojure.pprint/pprint {:before before# :sync sync# :after after#})
+     {:before (eval before#)
+      :sync (dosync (eval sync#))
+      :after (eval after#)}))
 
 (defmacro save!
   "Saves item(s) `m` to `coll`."
   ([coll m]
-   `(cond (map? ~m)
-          (save!* ~coll ~(name coll) ~m)
-          (sequential? ~m)
-          (doall (map (partial save!* ~coll ~(name coll)) ~m))
-          :else (throw (ex-info "Argument `m` must be either a map, or a sequential collection."
-                                {:type ::invalid-argument :m ~m}))))
+     {:pre [(map? m)]}
+     `(let [exists?# (and ~(:id m) (get ~coll ~(:id m)))
+            id# (or ~(:id m) (get-id ~coll))
+            m# (assoc ~m
+                 :id id#
+                 :inst (java.util.Date.))]
+        (with-transaction (gensym "refdb-save!*_")
+          {:sync (do
+                   (alter ~coll update-in [:items id#] (fnil conj (list)) m#)
+                   (when-not exists?#
+                     (alter ~coll update-in [:last-id] (fnil max 0) id#)
+                     (alter ~coll update-in [:count] (fnil inc 0)))
+                   m#)
+           :after (write! ~coll ~(name coll) m#)})))
   ([coll m & more]
-   `(save! (conj ~m ~more))))
+     `(doall (map #(save! ~coll %) (conj ~m ~more)))))
+
+(with-refdb-path "/tmp/"
+  (with-transaction retire
+    (save! test-coll {:test 0})
+    (save! test-coll {:nothing 2})))
+
+(let [xx 888]
+  (with-transaction retire
+    {:sync (mapv inc [1 2 3 4 xx])}
+    {:sync (mapv inc [2 3 4 5])}))
 
 (defmacro delete! [coll m]
   {:pre [(:id m)]}
