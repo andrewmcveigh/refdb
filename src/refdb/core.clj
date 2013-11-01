@@ -259,7 +259,7 @@ E.G.,
             m# (assoc ~m
                  :id id#
                  :inst (java.util.Date.))]
-        (with-transaction (gensym "refdb-save!*_")
+        (with-transaction (gensym "refdb-save!_")
           (let [m# (vary-meta m# (fnil assoc {}) :transaction ~'transaction)]
             {:sync (do
                      (alter ~coll update-in [:items id#] (fnil conj (list)) m#)
@@ -282,26 +282,26 @@ E.G.,
      (assoc m k (let [coll (clojure.core/get m k)]
                   (conj coll (apply f (first coll) args)))))))
 
-(defn update!* [coll coll-name id f path & args]
-  {:pre [(fn? f) (integer? id) (sequential? path)]}
-  (let [exists? (get coll id)]
-    (dosync
-      (apply alter coll fupdate-in [:items id] f path args)
-      (alter coll fupdate-in [:items id] assoc :id id :inst (java.util.Date.))
-      (when-not exists?
-        (alter coll update-in [:last-id] (fnil max 0) id)
-        (alter coll update-in [:count] (fnil inc 0))))
-    (let [m (get coll id)]
-      (write! coll coll-name m)
-      m)))
-
 (defmacro update!
   "'Updates' item with id `id` by applying fn `f` with `args` to it. E.G.,
 
     => (update! coll 3
                 update-in [:key1 0 :key2] assoc :x \"string content\")"
   [coll id f path & args]
-  `(update!* ~coll ~(name coll) ~id ~f ~path ~@args))
+  {:pre [`(fn? ~f) `(integer? ~id) `(sequential? ~path)]}
+  `(let [exists?# (get ~coll ~id)]
+     (with-transaction (gensym "refdb-update!_")
+       {:sync (do
+                (alter ~coll fupdate-in [:items ~id] ~f ~path ~@args)
+                (alter ~coll fupdate-in [:items ~id]
+                       assoc
+                       :id ~id
+                       :inst (java.util.Date.))
+                (when-not exists?#
+                  (alter ~coll update-in [:last-id] (fnil max 0) ~id)
+                  (alter ~coll update-in [:count] (fnil inc 0)))
+                (get ~coll ~id))
+        :post (write! ~coll ~(name coll) (get ~coll ~id))})))
 
 (defmacro with-refdb-path
   "Sets the file path context for `body` to operate in."
