@@ -66,6 +66,24 @@
            (map (comp #(spit (coll-file coll-name) % :append true) prn-str)
                 (apply concat (vals (:items @coll)))))))))
 
+(defn- transaction-file [transaction] "transaction.clj")
+
+(defn write-transaction!
+  "Writes a `transaction` to durable storage."
+  [{:keys [id inst name] :as transaction}]
+  {:pre [(bound? #'*path*)
+         (= ::transaction (type transaction))
+         (map? transaction)
+         (and id inst name)]}
+  (let [transaction-dir (join-path *path* "_transaction")]
+    (try
+      (.mkdir (io/file transaction-dir))
+      (spit (io/file (join-path transaction-dir (transaction-file transaction)))
+            (prn-str transaction)
+            :append true)
+      true
+      (catch Exception _))))
+
 (defmacro destroy!
   "Resets the `coll`, and the file associated."
   [coll]
@@ -164,22 +182,25 @@
 
 (defmacro with-transaction [t & body]
   `(let [~'t2 ~(if (and (sequential? t) (= `gensym (first t))) t `'~t)
+         ~'transaction (java.util.UUID/randomUUID)
          ~'body2 ~(vec (quote-sexprs body))
          before# (mapv :pre ~'body2)
          sync# (mapv :sync ~'body2)
          after# (mapv :post ~'body2)
-         trans# {:name (name ~'t2)
-                 :meta ~(meta t)
-                 :inst (java.util.Date.)
-                 :pre before#
-                 :sync sync#
-                 :post after#}]
-     ;(println "with-transaction:" ~'t2)
-     ;(clojure.pprint/pprint trans#)
+         trans# (with-meta
+                  {:name (name ~'t2)
+                   :meta ~(meta t)
+                   :inst (java.util.Date.)
+                   :id ~'transaction
+                   :pre before#
+                   :sync sync#
+                   :post after#}
+                  {:type ::transaction})]
      (-> trans#
          (update-in [:pre] eval)
          (update-in [:sync] #(dosync (eval %)))
          (update-in [:post] eval)
+         (assoc :ok (write-transaction! trans#))
          :sync)))
 
 (defmacro save!
@@ -193,13 +214,14 @@
                  :id id#
                  :inst (java.util.Date.))]
         (with-transaction (gensym "refdb-save!*_")
-          {:sync (do
-                   (alter ~coll update-in [:items id#] (fnil conj (list)) m#)
-                   (when-not exists?#
-                     (alter ~coll update-in [:last-id] (fnil max 0) id#)
-                     (alter ~coll update-in [:count] (fnil inc 0)))
-                   m#)
-           :post (write! ~coll ~(name coll) m#)})))
+          (let [m# (assoc m# :transaction ~'transaction)]
+            {:sync (do
+                     (alter ~coll update-in [:items id#] (fnil conj (list)) m#)
+                     (when-not exists?#
+                       (alter ~coll update-in [:last-id] (fnil max 0) id#)
+                       (alter ~coll update-in [:count] (fnil inc 0)))
+                     m#)
+             :post (write! ~coll ~(name coll) m#)}))))
   ([coll m & more]
      `(doall (map #(save! ~coll %) (conj ~m ~more)))))
 
