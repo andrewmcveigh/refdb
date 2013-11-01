@@ -115,13 +115,6 @@
   (dosync (alter coll update-in [:last-id] (fnil inc -1)))
   (:last-id @coll))
 
-(defn ^:deprecated? ->meta [m kw]
-  (if (contains? m kw)
-    (-> m
-        (vary-meta (fnil assoc {}) kw (kw m))
-        (dissoc kw))
-    m))
-
 (defn get
   "Gets an item from the collection by id."
   [coll id]
