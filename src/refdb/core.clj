@@ -64,6 +64,24 @@
            (map (comp #(spit (coll-file coll-name) % :append true) prn-str)
                 (apply concat (vals (:items @coll)))))))))
 
+(defn- transaction-file [transaction] "transaction.clj")
+
+(defn write-transaction!
+  "Writes a `transaction` to durable storage."
+  [{:keys [id inst name] :as transaction}]
+  {:pre [(bound? #'*path*)
+         (= ::transaction (type transaction))
+         (map? transaction)
+         (and id inst name)]}
+  (let [transaction-dir (join-path *path* "_transaction")]
+    (try
+      (.mkdir (io/file transaction-dir))
+      (spit (io/file (join-path transaction-dir (transaction-file transaction)))
+            (prn-str transaction)
+            :append true)
+      true
+      (catch Exception _))))
+
 (defmacro destroy!
   "Resets the `coll`, and the file associated."
   [coll]
@@ -76,10 +94,20 @@
   (dosync (alter coll update-in [:last-id] (fnil inc -1)))
   (:last-id @coll))
 
+(defn ->meta [m kw]
+  (if (contains? m kw)
+    (-> m
+        (vary-meta (fnil assoc {}) kw (kw m))
+        (dissoc kw))
+    m))
+
 (defn get
   "Gets an item from the collection by id."
   [coll id]
-  (first (get-in @coll [:items id])))
+  (-> @coll
+      (get-in [:items id])
+      first
+      (->meta :transaction)))
 
 (defn pred-match?
   "Returns truthy if the predicate, pred matches the item. If the predicate is
@@ -112,7 +140,7 @@
 
   If the predicate is `nil` or empty `{}`, returns all items."
   ([coll pred]
-   (map first
+   (map (comp #(->meta % :transaction) first)
         (filter (comp (partial pred-match? pred) first) (vals (:items @coll)))))
   ([coll k v & kvs]
    (find coll (apply hash-map (concat [k v] kvs)))))
@@ -131,30 +159,77 @@
   ([head & tail]
    (with-meta `[~head ~@tail] {::? ::or})))
 
-(defn save!* [coll coll-name m]
-  {:pre [(map? m)]}
-  (let [id (or (:id m) (get-id coll))
-        m (assoc m
-                 :id id
-                 :inst (java.util.Date.))
-        exists? (get coll id)]
-    (dosync
-      (alter coll update-in [:items id] (fnil conj (list)) m)
-      (when-not exists?
-        (alter coll update-in [:last-id] (fnil max 0) id)
-        (alter coll update-in [:count] (fnil inc 0))))
-    (write! coll coll-name m)
-    m))
+(def test-coll (ref nil))
+
+(defn quote-sexprs [coll]
+  (let [funcall? #(and (sequential? %)
+                       (or (= `with-transaction (first %))
+                           (#{'let* 'let 'do} (first %))
+                           (and (symbol? (first %))
+                                (or (fn? (first %))
+                                    (resolve (first %))))))]
+    (walk/walk-exprs
+     funcall?
+     (fn [expr]
+       (cond (#{'let* 'let} (first expr))
+             (apply list (concat (take 2 expr) (quote-sexprs (drop 2 expr))))
+             (= `with-transaction (first expr))
+             (quote-sexprs (first (drop 2 expr)))
+             :else
+             (apply list 'list
+                    (map #(cond (or (= 'do %)
+                                    (and (symbol? %)
+                                         (or (fn? %) (resolve %))))
+                                (list 'quote %)
+                                (funcall? %)
+                                (quote-sexprs %)
+                                :else %)
+                         expr))))
+     #{`with-transaction}
+     coll)))
+
+(defmacro with-transaction [t & body]
+  `(let [~'t2 ~(if (and (sequential? t) (= `gensym (first t))) t `'~t)
+         ~'transaction (java.util.UUID/randomUUID)
+         ~'body2 ~(vec (quote-sexprs body))
+         before# (mapv :pre ~'body2)
+         sync# (mapv :sync ~'body2)
+         after# (mapv :post ~'body2)
+         trans# (with-meta
+                  {:name (name ~'t2)
+                   :meta ~(meta t)
+                   :inst (java.util.Date.)
+                   :id ~'transaction
+                   :pre before#
+                   :sync sync#
+                   :post after#}
+                  {:type ::transaction})]
+     (-> trans#
+         (update-in [:pre] eval)
+         (update-in [:sync] #(dosync (eval %)))
+         (update-in [:post] eval)
+         (assoc :ok (write-transaction! trans#))
+         :sync)))
 
 (defmacro save!
   "Saves item(s) `m` to `coll`."
   ([coll m]
-   `(cond (map? ~m)
-          (save!* ~coll ~(name coll) ~m)
-          (sequential? ~m)
-          (doall (map (partial save!* ~coll ~(name coll)) ~m))
-          :else (throw (ex-info "Argument `m` must be either a map, or a sequential collection."
-                                {:type ::invalid-argument :m ~m}))))
+     `(let [m# ~m
+            _# (assert (map? m#) "Argument `m` must satisfy map?.")
+            exists?# (and (:id m#) (get ~coll (:id m#)))
+            id# (or (:id m#) (get-id ~coll))
+            m# (assoc ~m
+                 :id id#
+                 :inst (java.util.Date.))]
+        (with-transaction (gensym "refdb-save!*_")
+          (let [m# (assoc m# :transaction ~'transaction)]
+            {:sync (do
+                     (alter ~coll update-in [:items id#] (fnil conj (list)) m#)
+                     (when-not exists?#
+                       (alter ~coll update-in [:last-id] (fnil max 0) id#)
+                       (alter ~coll update-in [:count] (fnil inc 0)))
+                     m#)
+             :post (write! ~coll ~(name coll) m#)}))))
   ([coll m & more]
    `(save! (conj ~m ~more))))
 
@@ -204,7 +279,7 @@
   "Returns `n` items from the history of the record. If `n` is not specified,
   all history is returned"
   ([coll {id :id :as record} n]
-   (let [past (next (get-in @coll [:items id]))]
+   (let [past (map #(->meta % :transaction) (next (get-in @coll [:items id])))]
      (if n
        (take n past)
        past)))
