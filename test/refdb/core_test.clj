@@ -63,5 +63,12 @@
         (db/init! coll1)
         (is (= [{:id id :m 1 :a 2} {:id id :m 1}]
                (map #(dissoc % :inst)
-                    (db/history coll1 (first (db/find coll1 nil)))))))
+                    (db/history coll1 (first (db/find coll1 nil))))))
+        (db/with-transaction ^:test123 testtrans
+          (db/save! coll1 {:ttt 33 :ff 88}))
+        (dosync (ref-set coll1 nil))
+        (db/init! coll1)
+        (let [trns (db/transaction (first (db/find coll1 :ttt 33)))]
+          (is (= "testtrans" (:name trns)))
+          (is (= {:test123 true} (:meta trns)))))
       (db/destroy! coll1))))

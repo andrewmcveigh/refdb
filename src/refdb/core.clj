@@ -250,7 +250,8 @@ E.G.,
          :sync)))
 
 (defmacro save!
-  "Saves item(s) `m` to `coll`."
+  "Saves item(s) `m` to `coll`. If not wrapped in a transaction, wraps
+it's own."
   ([coll m]
      `(let [m# ~m
             _# (assert (map? m#) "Argument `m` must satisfy map?.")
@@ -286,7 +287,9 @@ E.G.,
   "'Updates' item with id `id` by applying fn `f` with `args` to it. E.G.,
 
     => (update! coll 3
-                update-in [:key1 0 :key2] assoc :x \"string content\")"
+                update-in [:key1 0 :key2] assoc :x \"string content\")
+
+If not wrapped in a transaction, wraps it's own."
   [coll id f path & args]
   {:pre [`(fn? ~f) `(integer? ~id) `(sequential? ~path)]}
   `(let [exists?# (get ~coll ~id)]
