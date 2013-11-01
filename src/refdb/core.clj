@@ -96,10 +96,20 @@
   (dosync (alter coll update-in [:last-id] (fnil inc -1)))
   (:last-id @coll))
 
+(defn ->meta [m kw]
+  (if (contains? m kw)
+    (-> m
+        (vary-meta (fnil assoc {}) kw (kw m))
+        (dissoc kw))
+    m))
+
 (defn get
   "Gets an item from the collection by id."
   [coll id]
-  (first (get-in @coll [:items id])))
+  (-> @coll
+      (get-in [:items id])
+      first
+      (->meta :transaction)))
 
 (defn pred-match?
   "Returns truthy if the predicate, pred matches the item. If the predicate is
@@ -132,7 +142,7 @@
 
   If the predicate is `nil` or empty `{}`, returns all items."
   ([coll pred]
-   (map first
+   (map (comp #(->meta % :transaction) first)
         (filter (comp (partial pred-match? pred) first) (vals (:items @coll)))))
   ([coll k v & kvs]
    (find coll (apply hash-map (concat [k v] kvs)))))
@@ -285,7 +295,7 @@
   "Returns `n` items from the history of the record. If `n` is not specified,
   all history is returned"
   ([coll {id :id :as record} n]
-   (let [past (next (get-in @coll [:items id]))]
+   (let [past (map #(->meta % :transaction) (next (get-in @coll [:items id])))]
      (if n
        (take n past)
        past)))
