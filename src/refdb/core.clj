@@ -49,6 +49,12 @@
   [coll]
   `(init!* ~coll (meta-file ~(name coll)) (coll-file ~(name coll))))
 
+(defn spit-record [coll-name coll-file record]
+  (spit (coll-file coll-name)
+        (str (when (meta record) (str \^ (pr-str (meta record)) \space))
+             (prn-str record))
+        :append true))
+
 (defn write!
   "Persists `coll` to permanent storage."
   ([coll coll-name]
@@ -58,11 +64,13 @@
    (.mkdir (io/file *path*))
    (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
    (if record
-     (spit (coll-file coll-name) (prn-str record) :append true)
+     (spit-record coll-name coll-file record)
      (do (spit (coll-file coll-name) "")
          (doall
-           (map (comp #(spit (coll-file coll-name) % :append true) prn-str)
+           (map (partial spit-record coll-name coll-file)
                 (apply concat (vals (:items @coll)))))))))
+
+(defn- transaction-dir [] (join-path *path* "_transaction"))
 
 (defn- transaction-file [transaction] "transaction.clj")
 
@@ -73,7 +81,7 @@
          (= ::transaction (type transaction))
          (map? transaction)
          (and id inst name)]}
-  (let [transaction-dir (join-path *path* "_transaction")]
+  (let [transaction-dir (transaction-dir)]
     (try
       (.mkdir (io/file transaction-dir))
       (spit (io/file (join-path transaction-dir (transaction-file transaction)))
@@ -81,6 +89,17 @@
             :append true)
       true
       (catch Exception _))))
+
+(defn transaction [record]
+  {:pre [(:transaction (meta record))]}
+  (let [t (:transaction (meta record))]
+    (with-open [r (java.io.PushbackReader.
+                   (io/reader
+                    (io/file (join-path (transaction-dir)
+                                        (transaction-file t)))))]
+      (loop [form (read r)]
+        (when form
+          (if (= (:id form) t) form (recur (read r))))))))
 
 (defmacro destroy!
   "Resets the `coll`, and the file associated."
@@ -94,20 +113,10 @@
   (dosync (alter coll update-in [:last-id] (fnil inc -1)))
   (:last-id @coll))
 
-(defn ->meta [m kw]
-  (if (contains? m kw)
-    (-> m
-        (vary-meta (fnil assoc {}) kw (kw m))
-        (dissoc kw))
-    m))
-
 (defn get
   "Gets an item from the collection by id."
   [coll id]
-  (-> @coll
-      (get-in [:items id])
-      first
-      (->meta :transaction)))
+  (-> @coll (get-in [:items id]) first))
 
 (defn pred-match?
   "Returns truthy if the predicate, pred matches the item. If the predicate is
@@ -140,7 +149,7 @@
 
   If the predicate is `nil` or empty `{}`, returns all items."
   ([coll pred]
-   (map (comp #(->meta % :transaction) first)
+   (map first
         (filter (comp (partial pred-match? pred) first) (vals (:items @coll)))))
   ([coll k v & kvs]
    (find coll (apply hash-map (concat [k v] kvs)))))
@@ -159,36 +168,63 @@
   ([head & tail]
    (with-meta `[~head ~@tail] {::? ::or})))
 
-(def test-coll (ref nil))
+(defn funcall? [sexpr]
+  (and (sequential? sexpr)
+       (or (= `with-transaction (first sexpr))
+           (#{'let* 'let 'do} (first sexpr))
+           (and (symbol? (first sexpr))
+                (or (fn? (first sexpr))
+                    (resolve (first sexpr)))))))
 
 (defn quote-sexprs [coll]
-  (let [funcall? #(and (sequential? %)
-                       (or (= `with-transaction (first %))
-                           (#{'let* 'let 'do} (first %))
-                           (and (symbol? (first %))
-                                (or (fn? (first %))
-                                    (resolve (first %))))))]
-    (walk/walk-exprs
-     funcall?
-     (fn [expr]
-       (cond (#{'let* 'let} (first expr))
-             (apply list (concat (take 2 expr) (quote-sexprs (drop 2 expr))))
-             (= `with-transaction (first expr))
-             (quote-sexprs (first (drop 2 expr)))
-             :else
-             (apply list 'list
-                    (map #(cond (or (= 'do %)
-                                    (and (symbol? %)
-                                         (or (fn? %) (resolve %))))
-                                (list 'quote %)
-                                (funcall? %)
-                                (quote-sexprs %)
-                                :else %)
-                         expr))))
-     #{`with-transaction}
-     coll)))
+  (walk/walk-exprs
+   funcall?
+   (fn [expr]
+     (cond (#{'let* 'let} (first expr))
+           (apply list (concat (take 2 expr) (quote-sexprs (drop 2 expr))))
+           (= `with-transaction (first expr))
+           (quote-sexprs (first (drop 2 expr)))
+           :else
+           (apply list 'list
+                  (map #(cond (or (= 'do %)
+                                  (and (symbol? %)
+                                       (or (fn? %) (resolve %))))
+                              (list 'quote %)
+                              (funcall? %)
+                              (quote-sexprs %)
+                              :else %)
+                       expr))))
+   #{`with-transaction}
+   coll))
 
-(defmacro with-transaction [t & body]
+(defmacro with-transaction
+  "Wraps `body` in a named transaction `t`. Will subsume inner transactions.
+Provides the dosync implementation for save!.
+
+Each body form should evaluate to satisfy map?, and the map should
+contain at least one keyval:
+
+    :sync (form ...)
+
+Optional keyvals are:
+
+    :pre (form ...)
+    :post (form ...)
+
+which are run before, and after the dosync :sync block respectively.
+
+E.G.,
+
+    (with-transaction retire
+      (save! employee {:id ... :retired (java.util.Date.)})
+      (save! employee {:id ... :active nil})
+      (save! account {:id ... :employee ... :status :retired})
+      {:pre (set-up ...)
+       :sync (alter account update-in [:items id] conj nil)
+       :post (doseq [x (file-seq (io/resource (format \"%s/images\" id)))]
+               (.delete x))})
+"
+  [t & body]
   `(let [~'t2 ~(if (and (sequential? t) (= `gensym (first t))) t `'~t)
          ~'transaction (java.util.UUID/randomUUID)
          ~'body2 ~(vec (quote-sexprs body))
@@ -222,7 +258,7 @@
                  :id id#
                  :inst (java.util.Date.))]
         (with-transaction (gensym "refdb-save!*_")
-          (let [m# (assoc m# :transaction ~'transaction)]
+          (let [m# (vary-meta m# (fnil assoc {}) :transaction ~'transaction)]
             {:sync (do
                      (alter ~coll update-in [:items id#] (fnil conj (list)) m#)
                      (when-not exists?#
@@ -231,7 +267,11 @@
                      m#)
              :post (write! ~coll ~(name coll) m#)}))))
   ([coll m & more]
-   `(save! (conj ~m ~more))))
+     `(doall (map #(save! ~coll %) (conj ~m ~more)))))
+
+(defmacro delete! [coll m]
+  {:pre [(:id m)]}
+  `(save! ~'coll ~(assoc m :deleted (java.util.Date.))))
 
 (defn fupdate-in
   ([m [k & ks] f & args]
