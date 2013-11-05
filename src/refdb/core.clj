@@ -172,6 +172,7 @@ E.G.,
       (catch Exception _))))
 
 (defn transaction [record]
+  "Returns the `record`'s transaction."
   {:pre [(:transaction (meta record))]}
   (let [t (:transaction (meta record))]
     (with-open [r (java.io.PushbackReader.

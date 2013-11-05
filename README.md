@@ -1,7 +1,10 @@
 # refdb
 
-A Clojure library designed to utilise a clojure Ref, and the filesytem as a
-simple "database".
+A Clojure library designed to utilise a clojure Ref, and the filesytem
+as a simple "database".
+
+**NOTE: This project is really just an experiment. You probably
+  shouldn't run it in production.**
 
 ## Artifacts
 
