@@ -5,9 +5,11 @@
     [refdb.core :as db]
     [riddley.walk :as walk]))
 
+(def coll1 (ref nil))
+
 (deftest all-test
-  (let [coll1 (ref nil)
-        path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))]
+  (let [path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))]
+    (dosync (ref-set coll1 nil))
     (db/with-refdb-path path
       (is (nil? (db/init! coll1)))
       (db/save! coll1 {:m 2})
@@ -23,8 +25,8 @@
              (dissoc (db/get coll1 3) :inst))))))
 
 (deftest and-or-test
-  (let [coll1 (ref nil)
-        path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))]
+  (let [path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))]
+    (dosync (ref-set coll1 nil))
     (db/with-refdb-path path
       (is (nil? (db/init! coll1)))
       (db/save! coll1 {:m 1})
@@ -44,11 +46,11 @@
       (db/destroy! coll1))))
 
 (deftest history-test
-  (let [coll1 (ref nil)
-        path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))]
+  (let [path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))]
+    (dosync (ref-set coll1 nil))
     (db/with-refdb-path path
       (is (nil? (db/init! coll1)))
-      (let [{id :id :as saved} (db/save! coll1 {:m 1})]
+      (let [{id :id :as saved} (first (db/save! coll1 {:m 1}))]
         (db/save! coll1 (assoc saved :a 2))
         (db/save! coll1 (assoc saved :b 3))
         (is (= [{:id id :m 1 :a 2} {:id id :m 1}]

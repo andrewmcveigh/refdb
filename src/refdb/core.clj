@@ -2,9 +2,11 @@
   "### The core namespace for the refdb library."
   (:refer-clojure :exclude [get find])
   (:require
-    [clojure.edn :as edn]
-    [clojure.java.io :as io]
-    [clojure.string :as string]))
+   [clojure.core.reducers :as r]
+   [clojure.edn :as edn]
+   [clojure.java.io :as io]
+   [clojure.string :as string]
+   [riddley.walk :as walk]))
 
 (declare ^:dynamic *path*)
 
@@ -65,6 +67,7 @@
    {:pre [(bound? #'*path*)]}
    (write! coll coll-name nil))
   ([coll coll-name record]
+   {:pre [(bound? #'*path*)]}
    (.mkdir (io/file *path*))
    (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
    (if record
@@ -95,7 +98,12 @@
                   (map #(cond (or (= 'do %)
                                   (and (symbol? %)
                                        (or (fn? %) (resolve %))))
-                              (list 'quote %)
+                              (if (resolve %)
+                                (let [m (meta (resolve %))]
+                                  (list 'quote
+                                        (symbol (name (ns-name (:ns m)))
+                                                (name (:name m)))))
+                                (list 'quote %))
                               (funcall? %)
                               (quote-sexprs %)
                               :else %)
@@ -208,10 +216,10 @@ E.G.,
           (?fn #(pred-match? % item) pred)
           (map? pred)
           (?fn (fn [[k v]]
-                 (let [value (k item)]
+                 (let [value (if (vector? k) (get-in item k) (k item))]
                    (cond (literal? v) (= value v)
                          (regex? v) (re-seq v value)
-                         :else (v (k item)))))
+                         :else (v value))))
                pred)
           :default nil)))
 
@@ -229,15 +237,10 @@ E.G.,
 
   If the predicate is `nil` or empty `{}`, returns all items."
   ([coll pred]
-     (reduce (fn [a [b]]
-               (if a
-                 (if (and b (pred-match? pred b))
-                   (conj a b)
-                   b)
-                 []))
-             (map val (:items @coll))))
+     (filter (partial pred-match? pred)
+             (map (comp first val) (:items @coll))))
   ([coll k v & kvs]
-   (find coll (apply hash-map (concat [k v] kvs)))))
+     (find coll (apply hash-map (concat [k v] kvs)))))
 
 (defn ?and
   "Creates `?and` operation predicate."
@@ -289,7 +292,7 @@ it's own."
 
 (defmacro update!
   "'Updates' item with id `id` by applying fn `f` with `args` to it. E.G.,
-  
+
     => (update! coll 3
                 update-in [:key1 0 :key2] assoc :x \"string content\")
 
