@@ -237,8 +237,12 @@ E.G.,
 
   If the predicate is `nil` or empty `{}`, returns all items."
   ([coll pred]
-     (filter (partial pred-match? pred)
-             (map (comp first val) (:items @coll))))
+     (if (< (:items @coll) 20000)
+       (filter (partial pred-match? pred)
+               (map (comp first val) (:items @coll)))
+       (r/fold (r/monoid into vector)
+               (fn [a b] (if (pred-match? pred b) (conj a b) a))
+               (r/map (fn [k [v]] v) (:items @coll)))))
   ([coll k v & kvs]
      (find coll (apply hash-map (concat [k v] kvs)))))
 
