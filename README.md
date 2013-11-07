@@ -1,4 +1,4 @@
-# refdb
+# refdb [![Build Status](https://travis-ci.org/andrewmcveigh/refdb.png?branch=master)](https://travis-ci.org/andrewmcveigh/refdb)
 
 A Clojure library designed to utilise a clojure Ref, and the filesytem
 as a simple "database".
