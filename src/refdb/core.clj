@@ -218,7 +218,7 @@ E.G.,
           (?fn (fn [[k v]]
                  (let [value (if (vector? k) (get-in item k) (k item))]
                    (cond (literal? v) (= value v)
-                         (regex? v) (re-seq v value)
+                         (regex? v) (when value (re-seq v value))
                          :else (v value))))
                pred)
           :default nil)))
