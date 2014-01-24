@@ -219,6 +219,8 @@ E.G.,
                  (let [value (if (vector? k) (get-in item k) (k item))]
                    (cond (literal? v) (= value v)
                          (regex? v) (when value (re-seq v value))
+                         (and (set? v) (vector? value))
+                         (or (v value) (some v value))
                          :else (v value))))
                pred)
           :default nil)))
