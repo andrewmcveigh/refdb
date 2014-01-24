@@ -1,4 +1,4 @@
-(defproject com.andrewmcveigh/refdb "0.1.5"
+(defproject com.andrewmcveigh/refdb "0.1.6"
   :description "File-backed ref-based \"database\""
   :url "http://github.com/andrewmcveigh/refdb"
   :dependencies [[org.clojure/clojure "1.5.1"]
