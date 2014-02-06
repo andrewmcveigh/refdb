@@ -279,7 +279,7 @@ it's own."
                      m#)
              :post (write! ~coll ~(name coll) m#)}))))
   ([coll m & more]
-     `(doall (map #(save! ~coll %) (conj ~m ~more)))))
+     `(doall (map #(save! ~coll %) ~(vec (cons m more))))))
 
 (defmacro delete! [coll m]
   {:pre [(:id m)]}
