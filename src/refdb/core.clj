@@ -264,6 +264,9 @@ it's own."
   ([coll m]
      `(let [m# ~m
             _# (assert (map? m#) "Argument `m` must satisfy map?.")
+            meta# ~(meta (resolve coll))
+            schema# (when meta# (::schema meta#))
+            _# (when schema# ((::validate meta#) schema# m#))
             exists?# (and (:id m#) (get ~coll (:id m#)))
             id# (or (:id m#) (get-id ~coll))
             m# (assoc ~m
