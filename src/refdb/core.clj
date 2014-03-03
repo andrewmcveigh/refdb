@@ -302,12 +302,15 @@ it's own."
                 update-in [:key1 0 :key2] assoc :x \"string content\")
 
 If not wrapped in a transaction, wraps it's own."
-  [coll id f path & args]
-  {:pre [`(fn? ~f) `(integer? ~id) `(sequential? ~path)]}
+  [coll id f & args]
+  {:pre [`(fn? ~f) `(integer? ~id)]}
   `(let [exists?# (get ~coll ~id)]
+     (when-let [meta# ~(meta (resolve coll))]
+       (when-let [schema# (::schema meta#)]
+         ((::validate meta#) schema# (~f exists?# ~@args))))
      (with-transaction (gensym "refdb-update!_")
        {:sync (do
-                (alter ~coll fupdate-in [:items ~id] ~f ~path ~@args)
+                (alter ~coll fupdate-in [:items ~id] ~f ~@args)
                 (alter ~coll fupdate-in [:items ~id]
                        assoc
                        :id ~id
