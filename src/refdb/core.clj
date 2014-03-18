@@ -277,7 +277,8 @@ it's own."
             {:sync (do
                      (alter ~coll update-in [:items id#] (fnil conj (list)) m#)
                      (when-not exists?#
-                       (alter ~coll update-in [:last-id] (fnil max 0) id#)
+                       (if (integer? id#)
+                         (alter ~coll update-in [:last-id] (fnil max 0) id#))
                        (alter ~coll update-in [:count] (fnil inc 0)))
                      m#)
              :post (write! ~coll ~(name coll) m#)}))))
@@ -316,7 +317,8 @@ If not wrapped in a transaction, wraps it's own."
                        :id ~id
                        :inst (java.util.Date.))
                 (when-not exists?#
-                  (alter ~coll update-in [:last-id] (fnil max 0) ~id)
+                  (if (integer? ~id)
+                    (alter ~coll update-in [:last-id] (fnil max 0) ~id))
                   (alter ~coll update-in [:count] (fnil inc 0)))
                 (get ~coll ~id))
         :post (write! ~coll ~(name coll) (get ~coll ~id))})))
