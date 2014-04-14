@@ -204,7 +204,8 @@ E.G.,
 (defn get
   "Gets an item from the collection by id."
   [coll id]
-  (-> @coll (get-in [:items id]) first))
+  (let [match (-> @coll (get-in [:items id]) first)]
+    (when-not (::deleted match) match)))
 
 (defn pred-match?
   "Returns truthy if the predicate, pred matches the item. If the predicate is
@@ -239,8 +240,9 @@ E.G.,
 
   If the predicate is `nil` or empty `{}`, returns all items."
   ([coll pred]
-     (filter (partial pred-match? pred)
-             (map (comp first val) (:items @coll))))
+     (remove ::deleted
+             (filter (partial pred-match? pred)
+                     (map (comp first val) (:items @coll)))))
   ([coll k v & kvs]
      (find coll (apply hash-map (concat [k v] kvs)))))
 
@@ -264,6 +266,9 @@ it's own."
   ([coll m]
      `(let [m# ~m
             _# (assert (map? m#) "Argument `m` must satisfy map?.")
+            meta# ~(meta (resolve coll))
+            schema# (when meta# (::schema meta#))
+            _# (when schema# ((::validate meta#) schema# m#))
             exists?# (and (:id m#) (get ~coll (:id m#)))
             id# (or (:id m#) (get-id ~coll))
             m# (assoc ~m
@@ -274,16 +279,17 @@ it's own."
             {:sync (do
                      (alter ~coll update-in [:items id#] (fnil conj (list)) m#)
                      (when-not exists?#
-                       (alter ~coll update-in [:last-id] (fnil max 0) id#)
+                       (if (integer? id#)
+                         (alter ~coll update-in [:last-id] (fnil max 0) id#))
                        (alter ~coll update-in [:count] (fnil inc 0)))
                      m#)
              :post (write! ~coll ~(name coll) m#)}))))
   ([coll m & more]
-     `(doall (map #(save! ~coll %) (conj ~m ~more)))))
+     `(doall (map #(save! ~coll %) ~(vec (cons m more))))))
 
 (defmacro delete! [coll m]
   {:pre [(:id m)]}
-  `(save! ~'coll ~(assoc m :deleted (java.util.Date.))))
+  `(save! ~coll ~(assoc m ::deleted (java.util.Date.))))
 
 (defn fupdate-in
   ([m [k & ks] f & args]
@@ -299,18 +305,22 @@ it's own."
                 update-in [:key1 0 :key2] assoc :x \"string content\")
 
 If not wrapped in a transaction, wraps it's own."
-  [coll id f path & args]
-  {:pre [`(fn? ~f) `(integer? ~id) `(sequential? ~path)]}
+  [coll id f & args]
+  {:pre [`(fn? ~f) `(integer? ~id)]}
   `(let [exists?# (get ~coll ~id)]
+     (when-let [meta# ~(meta (resolve coll))]
+       (when-let [schema# (::schema meta#)]
+         ((::validate meta#) schema# (~f exists?# ~@args))))
      (with-transaction (gensym "refdb-update!_")
        {:sync (do
-                (alter ~coll fupdate-in [:items ~id] ~f ~path ~@args)
+                (alter ~coll fupdate-in [:items ~id] ~f ~@args)
                 (alter ~coll fupdate-in [:items ~id]
                        assoc
                        :id ~id
                        :inst (java.util.Date.))
                 (when-not exists?#
-                  (alter ~coll update-in [:last-id] (fnil max 0) ~id)
+                  (if (integer? ~id)
+                    (alter ~coll update-in [:last-id] (fnil max 0) ~id))
                   (alter ~coll update-in [:count] (fnil inc 0)))
                 (get ~coll ~id))
         :post (write! ~coll ~(name coll) (get ~coll ~id))})))
