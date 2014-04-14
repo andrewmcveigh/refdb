@@ -204,7 +204,8 @@ E.G.,
 (defn get
   "Gets an item from the collection by id."
   [coll id]
-  (-> @coll (get-in [:items id]) first))
+  (let [match (-> @coll (get-in [:items id]) first)]
+    (when-not (::deleted match) match)))
 
 (defn pred-match?
   "Returns truthy if the predicate, pred matches the item. If the predicate is
@@ -239,8 +240,9 @@ E.G.,
 
   If the predicate is `nil` or empty `{}`, returns all items."
   ([coll pred]
-     (filter (partial pred-match? pred)
-             (map (comp first val) (:items @coll))))
+     (remove ::deleted
+             (filter (partial pred-match? pred)
+                     (map (comp first val) (:items @coll)))))
   ([coll k v & kvs]
      (find coll (apply hash-map (concat [k v] kvs)))))
 
@@ -287,7 +289,7 @@ it's own."
 
 (defmacro delete! [coll m]
   {:pre [(:id m)]}
-  `(save! ~'coll ~(assoc m :deleted (java.util.Date.))))
+  `(save! ~coll ~(assoc m ::deleted (java.util.Date.))))
 
 (defn fupdate-in
   ([m [k & ks] f & args]
