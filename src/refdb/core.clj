@@ -80,7 +80,7 @@
 (defn funcall? [sexpr]
   (and (sequential? sexpr)
        (or (= `with-transaction (first sexpr))
-           (#{'let* 'let 'do} (first sexpr))
+           (#{'let* 'let 'do 'if} (first sexpr))
            (and (symbol? (first sexpr))
                 (or (fn? (first sexpr))
                     (resolve (first sexpr)))))))
@@ -89,7 +89,7 @@
   (walk/walk-exprs
    funcall?
    (fn [expr]
-     (cond (#{'let* 'let} (first expr))
+     (cond (#{'let* 'let 'if} (first expr))
            (apply list (concat (take 2 expr) (quote-sexprs (drop 2 expr))))
            (= `with-transaction (first expr))
            (quote-sexprs (first (drop 2 expr)))
@@ -110,56 +110,6 @@
                        expr))))
    #{`with-transaction}
    coll))
-
-(defmacro with-transaction
-  "Wraps `body` in a named transaction `t`. Will subsume inner transactions.
-Provides the dosync implementation for save!.
-
-Each body form should evaluate to satisfy map?, and the map should
-contain at least one keyval:
-
-    :sync (form ...)
-
-Optional keyvals are:
-
-    :pre (form ...)
-    :post (form ...)
-
-which are run before, and after the dosync :sync block respectively.
-
-E.G.,
-
-    (with-transaction retire
-      (save! employee {:id ... :retired (java.util.Date.)})
-      (save! employee {:id ... :active nil})
-      (save! account {:id ... :employee ... :status :retired})
-      {:pre (set-up ...)
-       :sync (alter account update-in [:items id] conj nil)
-       :post (doseq [x (file-seq (io/resource (format \"%s/images\" id)))]
-               (.delete x))})
-"
-  [t & body]
-  `(let [~'t2 ~(if (and (sequential? t) (= `gensym (first t))) t `'~t)
-         ~'transaction (java.util.UUID/randomUUID)
-         ~'body2 ~(vec (quote-sexprs body))
-         before# (mapv :pre ~'body2)
-         sync# (mapv :sync ~'body2)
-         after# (mapv :post ~'body2)
-         trans# (with-meta
-                  {:name (name ~'t2)
-                   :meta ~(meta t)
-                   :inst (java.util.Date.)
-                   :id ~'transaction
-                   :pre before#
-                   :sync sync#
-                   :post after#}
-                  {:type ::transaction})]
-     (-> trans#
-         (update-in [:pre] eval)
-         (update-in [:sync] #(dosync (eval %)))
-         (update-in [:post] eval)
-         (assoc :ok (write-transaction! trans#))
-         :sync)))
 
 (defn write-transaction!
   "Writes a `transaction` to durable storage."
@@ -260,13 +210,64 @@ E.G.,
   ([head & tail]
    (with-meta `[~head ~@tail] {::? ::or})))
 
+(defmacro with-transaction
+  "Wraps `body` in a named transaction `t`. Will subsume inner transactions.
+Provides the dosync implementation for save!.
+
+Each body form should evaluate to satisfy map?, and the map should
+contain at least one keyval:
+
+    :sync (form ...)
+
+Optional keyvals are:
+
+    :pre (form ...)
+    :post (form ...)
+
+which are run before, and after the dosync :sync block respectively.
+
+E.G.,
+
+    (with-transaction retire
+      (save! employee {:id ... :retired (java.util.Date.)})
+      (save! employee {:id ... :active nil})
+      (save! account {:id ... :employee ... :status :retired})
+      {:pre (set-up ...)
+       :sync (alter account update-in [:items id] conj nil)
+       :post (doseq [x (file-seq (io/resource (format \"%s/images\" id)))]
+               (.delete x))})
+"
+  [t & body]
+  `(let [~'t2 ~(if (and (sequential? t) (= `gensym (first t))) t `'~t)
+         ~'transaction (java.util.UUID/randomUUID)
+         ~'body2 ~(vec (quote-sexprs body))
+         ;; _# (prn (vec (quote-sexprs '~body)))
+         before# (mapv :pre ~'body2)
+         sync# (mapv :sync ~'body2)
+         after# (mapv :post ~'body2)
+         trans# (with-meta
+                  {:name (name ~'t2)
+                   :meta ~(meta t)
+                   :inst (java.util.Date.)
+                   :id ~'transaction
+                   :pre before#
+                   :sync sync#
+                   :post after#}
+                  {:type ::transaction})]
+     (-> trans#
+         (update-in [:pre] eval)
+         (update-in [:sync] #(dosync (eval %)))
+         (update-in [:post] eval)
+         (assoc :ok (write-transaction! trans#))
+         :sync)))
+
 (defmacro save!
   "Saves item(s) `m` to `coll`. If not wrapped in a transaction, wraps
 it's own."
   ([coll m]
      `(let [m# ~m
             _# (assert (map? m#) "Argument `m` must satisfy map?.")
-            meta# ~(meta (resolve coll))
+            meta# (meta (resolve '~coll))
             schema# (when meta# (::schema meta#))
             _# (when schema# ((::validate meta#) schema# m#))
             exists?# (and (:id m#) (get ~coll (:id m#)))
@@ -288,8 +289,8 @@ it's own."
      `(doall (map #(save! ~coll %) ~(vec (cons m more))))))
 
 (defmacro delete! [coll m]
-  {:pre [(:id m)]}
-  `(save! ~coll ~(assoc m ::deleted (java.util.Date.))))
+  {:pre [`(:id ~m)]}
+  `(save! ~coll (assoc ~m ::deleted (java.util.Date.))))
 
 (defn fupdate-in
   ([m [k & ks] f & args]
