@@ -9,6 +9,7 @@
    [riddley.walk :as walk]))
 
 (declare ^:dynamic *path*)
+(def ^:dynamic *no-write* nil)
 
 (defn join-path [& args]
   {:pre [(every? (comp not nil?) args)]}
@@ -68,14 +69,15 @@
    (write! coll coll-name nil))
   ([coll coll-name record]
    {:pre [(bound? #'*path*)]}
-   (.mkdir (io/file *path*))
-   (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
-   (if record
-     (spit-record coll-name coll-file record)
-     (do (spit (coll-file coll-name) "")
-         (doall
-           (map (partial spit-record coll-name coll-file)
-                (apply concat (vals (:items @coll)))))))))
+   (when-not *no-write*
+     (.mkdir (io/file *path*))
+     (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
+     (if record
+       (spit-record coll-name coll-file record)
+       (do (spit (coll-file coll-name) "")
+           (doall
+            (map (partial spit-record coll-name coll-file)
+                 (apply concat (vals (:items @coll))))))))))
 
 (defn funcall? [sexpr]
   (and (sequential? sexpr)
