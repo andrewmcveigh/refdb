@@ -1,3 +1,7 @@
+## 0.2.1
+
+ - Add test fixture
+
 ## v0.2.0
 
  - Add *no-write* option
