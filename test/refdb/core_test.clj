@@ -71,3 +71,9 @@
           (is (= "testtrans" (:name trns)))
           (is (= {:test123 true} (:meta trns)))))
       (db/destroy! coll1))))
+
+(deftest fixture-test
+  ((db/fixture "/tmp")
+   (fn []
+     (is (or (= db/*path* "/tmp") (= db/*path* "/private/tmp")))
+     (is db/*no-write*))))

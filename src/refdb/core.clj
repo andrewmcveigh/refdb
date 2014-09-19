@@ -243,7 +243,6 @@ E.G.,
   `(let [~'t2 ~(if (and (sequential? t) (= `gensym (first t))) t `'~t)
          ~'transaction (java.util.UUID/randomUUID)
          ~'body2 ~(vec (quote-sexprs body))
-         ;; _# (prn (vec (quote-sexprs '~body)))
          before# (mapv :pre ~'body2)
          sync# (mapv :sync ~'body2)
          after# (mapv :post ~'body2)
@@ -360,3 +359,9 @@ If not wrapped in a transaction, wraps it's own."
   [handler path-to-files]
   (fn [request]
     (with-refdb-path path-to-files (handler request))))
+
+(defmacro fixture [path]
+  `(fn [f#]
+     (binding [*no-write* true]
+       (with-refdb-path (io/file ~path)
+         (f#)))))
