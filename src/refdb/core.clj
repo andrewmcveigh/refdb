@@ -365,8 +365,9 @@ If not wrapped in a transaction, wraps it's own."
   (fn [request]
     (with-refdb-path path-to-files (handler request))))
 
-(defmacro fixture [path]
+(defmacro fixture [path & colls]
   `(fn [f#]
      (binding [*no-write* true]
        (with-refdb-path (io/file ~path)
+         ~@(map #(list 'init! %) colls)
          (f#)))))
