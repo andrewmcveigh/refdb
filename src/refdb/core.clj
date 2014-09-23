@@ -159,6 +159,11 @@
   (let [match (-> @coll (get-in [:items id]) first)]
     (when-not (::deleted match) match)))
 
+(defn created [coll id]
+  (let [match (-> @coll (get-in [:items id]) last)]
+    (when-not (::deleted match)
+      (:inst match))))
+
 (defn pred-match?
   "Returns truthy if the predicate, pred matches the item. If the predicate is
   `nil` or empty `{}`, returns `true`."
