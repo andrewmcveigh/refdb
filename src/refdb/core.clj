@@ -369,5 +369,5 @@ If not wrapped in a transaction, wraps it's own."
   `(fn [f#]
      (binding [*no-write* true]
        (with-refdb-path (io/file ~path)
-         ~@(map #(list 'init! %) colls)
+         ~@(map #(list `init! %) colls)
          (f#)))))
