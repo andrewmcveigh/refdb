@@ -1,3 +1,9 @@
+## v0.2.2
+
+- Fixture can init colls
+
+- Add created to API
+
 ## 0.2.1
 
  - Add test fixture
