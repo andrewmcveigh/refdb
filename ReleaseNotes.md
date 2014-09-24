@@ -1,3 +1,7 @@
+## v0.2.3
+
+ - Better *no-write*
+
 ## v0.2.2
 
 - Fixture can init colls
