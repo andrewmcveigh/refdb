@@ -65,10 +65,10 @@
 (defn write!
   "Persists `coll` to permanent storage."
   ([coll coll-name]
-   {:pre [(bound? #'*path*)]}
+   {:pre [(or *no-write* (bound? #'*path*))]}
    (write! coll coll-name nil))
   ([coll coll-name record]
-   {:pre [(bound? #'*path*)]}
+   {:pre [(or *no-write* (bound? #'*path*))]}
    (when-not *no-write*
      (.mkdir (io/file *path*))
      (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
@@ -116,18 +116,19 @@
 (defn write-transaction!
   "Writes a `transaction` to durable storage."
   [{:keys [id inst name] :as transaction}]
-  {:pre [(bound? #'*path*)
+  {:pre [(or *no-write* (bound? #'*path*))
          (= ::transaction (type transaction))
          (map? transaction)
          (and id inst name)]}
-  (let [transaction-dir (transaction-dir)]
-    (try
-      (.mkdir (io/file transaction-dir))
-      (spit (io/file (join-path transaction-dir (transaction-file transaction)))
-            (prn-str transaction)
-            :append true)
-      true
-      (catch Exception _))))
+  (when-not *no-write*
+    (let [transaction-dir (transaction-dir)]
+      (try
+        (.mkdir (io/file transaction-dir))
+        (spit (io/file (join-path transaction-dir (transaction-file transaction)))
+              (prn-str transaction)
+              :append true)
+        true
+        (catch Exception _)))))
 
 (defn transaction [record]
   "Returns the `record`'s transaction."
