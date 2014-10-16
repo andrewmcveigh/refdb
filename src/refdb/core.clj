@@ -8,24 +8,22 @@
    [clojure.string :as string]
    [riddley.walk :as walk]))
 
-(declare ^:dynamic *path*)
-(def ^:dynamic *no-write* nil)
-
 (defn join-path [& args]
   {:pre [(every? (comp not nil?) args)]}
   (let [ensure-no-delims #(string/replace % #"(?:^/)|(?:/$)" "")]
     (str (when (.startsWith (first args) "/") \/)
          (string/join "/" (map ensure-no-delims args)))))
 
-(defn coll-file [coll-name]
-  {:pre [(bound? #'*path*)]}
-  (io/file (join-path *path* (format "%s.clj" coll-name))))
+(defn coll-file [{:keys [path] :as db-spec} coll-name]
+  {:pre [path]}
+  (io/file (join-path path (format "%s.clj" coll-name))))
 
-(defn meta-file [coll-name]
-  {:pre [(bound? #'*path*)]}
-  (io/file (join-path *path* (format "%s.meta.clj" coll-name))))
+(defn meta-file [{:keys [path] :as db-spec} coll-name]
+  {:pre [path]}
+  (io/file (join-path path (format "%s.meta.clj" coll-name))))
 
-(defn- transaction-dir [] (join-path *path* "_transaction"))
+(defn- transaction-dir [{:keys [path] :as db-spec}]
+  (join-path path "_transaction"))
 
 (defn- transaction-file [transaction] "transaction.clj")
 
@@ -53,31 +51,38 @@
 
 (defmacro init!
   "Initializes the `coll` from the filesystem."
-  [coll]
-  `(init!* ~coll (meta-file ~(name coll)) (coll-file ~(name coll))))
+  [db-spec coll]
+  `(if (instance? clojure.lang.Ref ~coll)
+     (init!* ~coll
+             (meta-file ~db-spec ~(name coll))
+             (coll-file ~db-spec ~(name coll)))
+     (init!* (deref (resolve ~coll))
+             (meta-file ~db-spec (name ~coll))
+             (coll-file ~db-spec (name ~coll)))))
 
-(defn spit-record [coll-name coll-file record]
-  (spit (coll-file coll-name)
+(defn spit-record [db-spec coll-name coll-file record]
+  (spit coll-file
         (str (when (meta record) (str \^ (pr-str (meta record)) \space))
              (prn-str record))
         :append true))
 
 (defn write!
   "Persists `coll` to permanent storage."
-  ([coll coll-name]
-   {:pre [(or *no-write* (bound? #'*path*))]}
-   (write! coll coll-name nil))
-  ([coll coll-name record]
-   {:pre [(or *no-write* (bound? #'*path*))]}
-   (when-not *no-write*
-     (.mkdir (io/file *path*))
-     (spit (meta-file coll-name) (pr-str (dissoc @coll :items)))
-     (if record
-       (spit-record coll-name coll-file record)
-       (do (spit (coll-file coll-name) "")
-           (doall
-            (map (partial spit-record coll-name coll-file)
-                 (apply concat (vals (:items @coll))))))))))
+  ([{:keys [no-write? path] :as db-spec} coll coll-name]
+   {:pre [(or no-write? path)]}
+   (write! db-spec coll coll-name nil))
+  ([{:keys [no-write? path] :as db-spec} coll coll-name record]
+   {:pre [(or no-write? path)]}
+   (when-not no-write?
+     (.mkdir (io/file path))
+     (spit (meta-file db-spec coll-name) (pr-str (dissoc @coll :items)))
+     (let [coll-file (coll-file db-spec coll-name)]
+       (if record
+         (spit-record db-spec coll-name coll-file record)
+         (do (spit coll-file "")
+             (doall
+              (map (partial spit-record db-spec coll-name coll-file)
+                   (apply concat (vals (:items @coll)))))))))))
 
 (defn funcall? [sexpr]
   (and (sequential? sexpr)
@@ -94,7 +99,7 @@
      (cond (#{'let* 'let 'if} (first expr))
            (apply list (concat (take 2 expr) (quote-sexprs (drop 2 expr))))
            (= `with-transaction (first expr))
-           (quote-sexprs (first (drop 2 expr)))
+           (quote-sexprs (first (drop 3 expr)))
            :else
            (apply list 'list
                   (map #(cond (or (= 'do %)
@@ -115,28 +120,29 @@
 
 (defn write-transaction!
   "Writes a `transaction` to durable storage."
-  [{:keys [id inst name] :as transaction}]
-  {:pre [(or *no-write* (bound? #'*path*))
+  [{:keys [no-write? path] :as db-spec} {:keys [id inst name] :as transaction}]
+  {:pre [(or no-write? path)
          (= ::transaction (type transaction))
          (map? transaction)
          (and id inst name)]}
-  (when-not *no-write*
-    (let [transaction-dir (transaction-dir)]
+  (when-not no-write?
+    (let [transaction-dir (transaction-dir db-spec)]
       (try
         (.mkdir (io/file transaction-dir))
-        (spit (io/file (join-path transaction-dir (transaction-file transaction)))
+        (spit (io/file (join-path transaction-dir
+                                  (transaction-file transaction)))
               (prn-str transaction)
               :append true)
         true
         (catch Exception _)))))
 
-(defn transaction [record]
+(defn transaction [{:keys [path] :as db-spec} record]
   "Returns the `record`'s transaction."
   {:pre [(:transaction (meta record))]}
   (let [t (:transaction (meta record))]
     (with-open [r (java.io.PushbackReader.
                    (io/reader
-                    (io/file (join-path (transaction-dir)
+                    (io/file (join-path (transaction-dir db-spec)
                                         (transaction-file t)))))]
       (loop [form (edn/read {:eof nil} r)]
         (when form
@@ -144,9 +150,9 @@
 
 (defmacro destroy!
   "Resets the `coll`, and the file associated."
-  [coll]
+  [{:keys [no-write? path] :as db-spec} coll]
   `(do (dosync (ref-set ~coll {}))
-       (write! ~coll ~(name coll))))
+       (write! ~db-spec ~coll ~(name coll))))
 
 (defn get-id
   "Gets a the next available ID for the database."
@@ -245,7 +251,7 @@ E.G.,
        :post (doseq [x (file-seq (io/resource (format \"%s/images\" id)))]
                (.delete x))})
 "
-  [t & body]
+  [db-spec t & body]
   `(let [~'t2 ~(if (and (sequential? t) (= `gensym (first t))) t `'~t)
          ~'transaction (java.util.UUID/randomUUID)
          ~'body2 ~(vec (quote-sexprs body))
@@ -265,13 +271,13 @@ E.G.,
          (update-in [:pre] eval)
          (update-in [:sync] #(dosync (eval %)))
          (update-in [:post] eval)
-         (assoc :ok (write-transaction! trans#))
+         (assoc :ok (write-transaction! ~db-spec trans#))
          :sync)))
 
 (defmacro save!
   "Saves item(s) `m` to `coll`. If not wrapped in a transaction, wraps
 it's own."
-  ([coll m]
+  ([db-spec coll m]
      `(let [m# ~m
             _# (assert (map? m#) "Argument `m` must satisfy map?.")
             meta# (meta (resolve '~coll))
@@ -282,7 +288,7 @@ it's own."
             m# (assoc ~m
                  :id id#
                  :inst (java.util.Date.))]
-        (with-transaction (gensym "refdb-save!_")
+        (with-transaction ~db-spec (gensym "refdb-save!_")
           (let [m# (vary-meta m# (fnil assoc {}) :transaction ~'transaction)]
             {:sync (do
                      (alter ~coll update-in [:items id#] (fnil conj (list)) m#)
@@ -291,13 +297,13 @@ it's own."
                          (alter ~coll update-in [:last-id] (fnil max 0) id#))
                        (alter ~coll update-in [:count] (fnil inc 0)))
                      m#)
-             :post (write! ~coll ~(name coll) m#)}))))
-  ([coll m & more]
-     `(doall (map #(save! ~coll %) ~(vec (cons m more))))))
+             :post (write! ~db-spec ~coll ~(name coll) m#)}))))
+  ([db-spec coll m & more]
+     `(doall (map #(save! ~db-spec ~coll %) ~(vec (cons m more))))))
 
-(defmacro delete! [coll m]
+(defmacro delete! [db-spec coll m]
   {:pre [`(:id ~m)]}
-  `(save! ~coll (assoc ~m ::deleted (java.util.Date.))))
+  `(save! ~db-spec ~coll (assoc ~m ::deleted (java.util.Date.))))
 
 (defn fupdate-in
   ([m [k & ks] f & args]
@@ -313,13 +319,13 @@ it's own."
                 update-in [:key1 0 :key2] assoc :x \"string content\")
 
 If not wrapped in a transaction, wraps it's own."
-  [coll id f & args]
+  [db-spec coll id f & args]
   {:pre [`(fn? ~f) `(integer? ~id)]}
   `(let [exists?# (get ~coll ~id)]
      (when-let [meta# ~(meta (resolve coll))]
        (when-let [schema# (::schema meta#)]
          ((::validate meta#) schema# (~f exists?# ~@args))))
-     (with-transaction (gensym "refdb-update!_")
+     (with-transaction ~db-spec (gensym "refdb-update!_")
        {:sync (do
                 (alter ~coll fupdate-in [:items ~id] ~f ~@args)
                 (alter ~coll fupdate-in [:items ~id]
@@ -331,7 +337,7 @@ If not wrapped in a transaction, wraps it's own."
                     (alter ~coll update-in [:last-id] (fnil max 0) ~id))
                   (alter ~coll update-in [:count] (fnil inc 0)))
                 (get ~coll ~id))
-        :post (write! ~coll ~(name coll) (get ~coll ~id))})))
+        :post (write! ~db-spec ~coll ~(name coll) (get ~coll ~id))})))
 
 (defn history
   "Returns `n` items from the history of the record. If `n` is not specified,
@@ -351,24 +357,3 @@ If not wrapped in a transaction, wraps it's own."
    (nth (history coll record) n))
   ([coll record]
    (previous coll record 0)))
-
-(defmacro with-refdb-path
-  "Sets the file path context for `body` to operate in."
-  [path-to-files & body]
-  `(binding [*path* (if (instance? java.io.File ~path-to-files)
-                      (.getCanonicalPath ~path-to-files)
-                      ~path-to-files)]
-     ~@body))
-
-(defn wrap-refdb
-  "Wraps the file path context in a ring middleware function."
-  [handler path-to-files]
-  (fn [request]
-    (with-refdb-path path-to-files (handler request))))
-
-(defmacro fixture [path & colls]
-  `(fn [f#]
-     (binding [*no-write* true]
-       (with-refdb-path (io/file ~path)
-         ~@(map #(list `init! %) colls)
-         (f#)))))
