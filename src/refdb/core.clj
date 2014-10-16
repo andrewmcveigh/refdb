@@ -52,9 +52,13 @@
 (defmacro init!
   "Initializes the `coll` from the filesystem."
   [db-spec coll]
-  `(init!* ~coll
-           (meta-file ~db-spec ~(name coll))
-           (coll-file ~db-spec ~(name coll))))
+  `(if (instance? clojure.lang.Ref ~coll)
+     (init!* ~coll
+             (meta-file ~db-spec ~(name coll))
+             (coll-file ~db-spec ~(name coll)))
+     (init!* (deref (resolve ~coll))
+             (meta-file ~db-spec (name ~coll))
+             (coll-file ~db-spec (name ~coll)))))
 
 (defn spit-record [db-spec coll-name coll-file record]
   (spit coll-file

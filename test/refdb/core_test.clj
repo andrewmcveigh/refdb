@@ -23,6 +23,23 @@
     (is (= {:id 3 :test {:test2 {:thsteh 2}}}
            (dissoc (db/get coll1 3) :inst)))))
 
+(deftest symbol-test
+  (let [x `coll1
+        db-spec {:path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))}]
+    (dosync (ref-set coll1 nil))
+    (is (nil? (db/init! db-spec x)))
+    (db/save! db-spec coll1 {:m 2})
+    (let [res (first (db/find coll1 {:m 2}))]
+      (is (= 2 (:m res)))
+      (db/save! db-spec coll1 (assoc res :t 6))
+      (is (= 6 (:t (first (db/find coll1 {:m 2}))))))
+    (db/destroy! db-spec coll1)
+    (is (nil? (load-file (str (db/coll-file db-spec "coll1")))))
+    (db/update! db-spec coll1 1 assoc-in [:test1 :test2 :thsteh] 2)
+    (db/update! db-spec coll1 3 assoc-in [:test :test2 :thsteh] 2)
+    (is (= {:id 3 :test {:test2 {:thsteh 2}}}
+           (dissoc (db/get coll1 3) :inst)))))
+
 (deftest and-or-test
   (let [db-spec {:path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))}]
     (dosync (ref-set coll1 nil))
