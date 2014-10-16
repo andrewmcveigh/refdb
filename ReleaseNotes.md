@@ -1,3 +1,9 @@
+## v0.3.0
+
+ - Can use symbol, or ref to init
+
+- API takes db-spec as first arg
+
 ## v0.2.3
 
  - Better *no-write*
