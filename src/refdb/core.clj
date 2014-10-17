@@ -16,11 +16,11 @@
 
 (defn coll-file [{:keys [path] :as db-spec} coll-name]
   {:pre [path]}
-  (io/file (join-path path (format "%s.clj" coll-name))))
+  (io/file path (format "%s.clj" coll-name)))
 
 (defn meta-file [{:keys [path] :as db-spec} coll-name]
   {:pre [path]}
-  (io/file (join-path path (format "%s.meta.clj" coll-name))))
+  (io/file path (format "%s.meta.clj" coll-name)))
 
 (defn- transaction-dir [{:keys [path] :as db-spec}]
   (join-path path "_transaction"))
@@ -357,3 +357,23 @@ If not wrapped in a transaction, wraps it's own."
    (nth (history coll record) n))
   ([coll record]
    (previous coll record 0)))
+
+(defmacro db-spec [{:keys [path no-write?] :as opts} & colls]
+  `(let [path# (cond (string? ~path)
+                     (when-let [path# (io/resource ~path)] (io/file path#))
+                     (instance? java.net.URI ~path)
+                     (io/file ~path)
+                     :default ~path)
+         opts# (assoc ~opts :path path#)]
+     (assert path# "Option `path` must be specified.")
+     (assert (and (instance? java.io.File path#) (.exists path#))
+             "Option `path` must either be, or convert to a
+            java.io.File, and it must exist.")
+     (assoc opts#
+       :colls (->> ~(mapv #(-> {:name (name %) :ref %}) colls)
+                   (map #(let [n# (:name %)]
+                           [(keyword n#)
+                            (assoc %
+                              :coll-file (coll-file opts# n#)
+                              :meta-file (meta-file opts# n#))]))
+                   (into {})))))
