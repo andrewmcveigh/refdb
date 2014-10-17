@@ -16,11 +16,11 @@
 
 (defn coll-file [{:keys [path] :as db-spec} coll-name]
   {:pre [path]}
-  (io/file (join-path path (format "%s.clj" coll-name))))
+  (io/file path (format "%s.clj" coll-name)))
 
 (defn meta-file [{:keys [path] :as db-spec} coll-name]
   {:pre [path]}
-  (io/file (join-path path (format "%s.meta.clj" coll-name))))
+  (io/file path (format "%s.meta.clj" coll-name)))
 
 (defn- transaction-dir [{:keys [path] :as db-spec}]
   (join-path path "_transaction"))
@@ -38,29 +38,20 @@
   [x]
   (instance? java.util.regex.Pattern x))
 
-(defn init!* [coll meta-file coll-file]
-  (when (.exists meta-file)
-    (dosync
-      (ref-set coll (load-file (.getCanonicalPath meta-file)))
-      (when (.exists coll-file)
-        (with-open [reader (java.io.PushbackReader. (io/reader coll-file))]
-          (loop []
-            (when-let [{:keys [id] :as form} (edn/read {:eof nil} reader)]
-              (do (alter coll update-in [:items id] (fnil conj (list)) form)
-                  (recur)))))))))
+(defn init! [{:keys [colls] :as db-spec} & {:keys [only]}]
+  (doseq [[_ {:keys [coll-ref meta-file coll-file]}]
+          (if only (select-keys colls only) colls)]
+    (when (.exists meta-file)
+      (dosync
+       (ref-set coll-ref (load-file (.getCanonicalPath meta-file)))
+       (when (.exists coll-file)
+         (with-open [reader (java.io.PushbackReader. (io/reader coll-file))]
+           (loop []
+             (when-let [{:keys [id] :as form} (edn/read {:eof nil} reader)]
+               (do (alter coll-ref update-in [:items id] (fnil conj (list)) form)
+                   (recur))))))))))
 
-(defmacro init!
-  "Initializes the `coll` from the filesystem."
-  [db-spec coll]
-  `(if (instance? clojure.lang.Ref ~coll)
-     (init!* ~coll
-             (meta-file ~db-spec ~(name coll))
-             (coll-file ~db-spec ~(name coll)))
-     (init!* (deref (resolve ~coll))
-             (meta-file ~db-spec (name ~coll))
-             (coll-file ~db-spec (name ~coll)))))
-
-(defn spit-record [db-spec coll-name coll-file record]
+(defn spit-record [coll-file record]
   (spit coll-file
         (str (when (meta record) (str \^ (pr-str (meta record)) \space))
              (prn-str record))
@@ -68,21 +59,21 @@
 
 (defn write!
   "Persists `coll` to permanent storage."
-  ([{:keys [no-write? path] :as db-spec} coll coll-name]
-   {:pre [(or no-write? path)]}
-   (write! db-spec coll coll-name nil))
-  ([{:keys [no-write? path] :as db-spec} coll coll-name record]
-   {:pre [(or no-write? path)]}
-   (when-not no-write?
-     (.mkdir (io/file path))
-     (spit (meta-file db-spec coll-name) (pr-str (dissoc @coll :items)))
-     (let [coll-file (coll-file db-spec coll-name)]
-       (if record
-         (spit-record db-spec coll-name coll-file record)
-         (do (spit coll-file "")
-             (doall
-              (map (partial spit-record db-spec coll-name coll-file)
-                   (apply concat (vals (:items @coll)))))))))))
+  ([{:keys [no-write? path] :as db-spec} coll]
+     {:pre [(or no-write? path)]}
+     (write! db-spec coll nil))
+  ([{:keys [no-write? path colls] :as db-spec} coll record]
+     {:pre [(or no-write? path)]}
+     (when-not no-write?
+       (let [{:keys [coll-file meta-file coll-ref]} (coll colls)]
+         (.mkdir (io/file path))
+         (spit meta-file (pr-str (dissoc @coll-ref :items)))
+         (if record
+           (spit-record coll-file record)
+           (do (spit coll-file "")
+               (doall
+                (map (partial spit-record coll-file)
+                     (apply concat (vals (:items @coll-ref)))))))))))
 
 (defn funcall? [sexpr]
   (and (sequential? sexpr)
@@ -148,11 +139,11 @@
         (when form
           (if (= (:id form) t) form (recur (edn/read {:eof nil} r))))))))
 
-(defmacro destroy!
+(defn destroy!
   "Resets the `coll`, and the file associated."
-  [{:keys [no-write? path] :as db-spec} coll]
-  `(do (dosync (ref-set ~coll {}))
-       (write! ~db-spec ~coll ~(name coll))))
+  [{:keys [no-write? path colls] :as db-spec} coll]
+  (do (dosync (ref-set (:coll-ref (coll colls)) {}))
+      (write! db-spec coll)))
 
 (defn get-id
   "Gets a the next available ID for the database."
@@ -252,8 +243,7 @@ E.G.,
                (.delete x))})
 "
   [db-spec t & body]
-  `(let [~'t2 ~(if (and (sequential? t) (= `gensym (first t))) t `'~t)
-         ~'transaction (java.util.UUID/randomUUID)
+  `(let [~'t2 ~(if (and (sequential? t) (= 'gensym (first t))) t `'~t)
          ~'body2 ~(vec (quote-sexprs body))
          before# (mapv :pre ~'body2)
          sync# (mapv :sync ~'body2)
@@ -262,11 +252,13 @@ E.G.,
                   {:name (name ~'t2)
                    :meta ~(meta t)
                    :inst (java.util.Date.)
-                   :id ~'transaction
+                   :id (java.util.UUID/randomUUID)
                    :pre before#
                    :sync sync#
-                   :post after#}
+                   :post after#
+                   }
                   {:type ::transaction})]
+         (prn trans#)
      (-> trans#
          (update-in [:pre] eval)
          (update-in [:sync] #(dosync (eval %)))
@@ -274,36 +266,32 @@ E.G.,
          (assoc :ok (write-transaction! ~db-spec trans#))
          :sync)))
 
-(defmacro save!
-  "Saves item(s) `m` to `coll`. If not wrapped in a transaction, wraps
-it's own."
-  ([db-spec coll m]
-     `(let [m# ~m
-            _# (assert (map? m#) "Argument `m` must satisfy map?.")
-            meta# (meta (resolve '~coll))
-            schema# (when meta# (::schema meta#))
-            _# (when schema# ((::validate meta#) schema# m#))
-            exists?# (and (:id m#) (get ~coll (:id m#)))
-            id# (or (:id m#) (get-id ~coll))
-            m# (assoc ~m
-                 :id id#
-                 :inst (java.util.Date.))]
-        (with-transaction ~db-spec (gensym "refdb-save!_")
-          (let [m# (vary-meta m# (fnil assoc {}) :transaction ~'transaction)]
-            {:sync (do
-                     (alter ~coll update-in [:items id#] (fnil conj (list)) m#)
-                     (when-not exists?#
-                       (if (integer? id#)
-                         (alter ~coll update-in [:last-id] (fnil max 0) id#))
-                       (alter ~coll update-in [:count] (fnil inc 0)))
-                     m#)
-             :post (write! ~db-spec ~coll ~(name coll) m#)}))))
-  ([db-spec coll m & more]
-     `(doall (map #(save! ~db-spec ~coll %) ~(vec (cons m more))))))
+(defn validate [db-spec coll m]
+  (when-let [meta (some-> db-spec :colls coll :var meta)]
+    (when-let [schema (when meta (::schema meta))]
+      ((::validate meta) schema m))))
 
-(defmacro delete! [db-spec coll m]
-  {:pre [`(:id ~m)]}
-  `(save! ~db-spec ~coll (assoc ~m ::deleted (java.util.Date.))))
+(defn save!
+  "Saves item(s) `m` to `coll`."
+  [{:keys [colls] :as db-spec} coll m]
+  (assert (map? m) "Argument `m` must satisfy map?.")
+  (validate db-spec coll m)
+  (let [{:keys [var coll-ref name coll-file meta-file]} (coll colls)
+        exists? (and (:id m) (get coll-ref (:id m)))
+        id (or (:id m) (get-id coll-ref))
+        m (assoc m :id id :inst (java.util.Date.))]
+    (dosync
+     (alter coll-ref update-in [:items id] (fnil conj (list)) m)
+     (when-not exists?
+       (if (integer? id)
+         (alter coll-ref update-in [:last-id] (fnil max 0) id))
+       (alter coll-ref update-in [:count] (fnil inc 0))))
+    (write! db-spec coll m)
+    m))
+
+(defn delete! [db-spec coll m]
+  {:pre [(:id m)]}
+  (save! db-spec coll (assoc m ::deleted (java.util.Date.))))
 
 (defn fupdate-in
   ([m [k & ks] f & args]
@@ -312,32 +300,26 @@ it's own."
      (assoc m k (let [coll (clojure.core/get m k)]
                   (conj coll (apply f (first coll) args)))))))
 
-(defmacro update!
+(defn update!
   "'Updates' item with id `id` by applying fn `f` with `args` to it. E.G.,
 
-    => (update! coll 3
-                update-in [:key1 0 :key2] assoc :x \"string content\")
-
-If not wrapped in a transaction, wraps it's own."
-  [db-spec coll id f & args]
-  {:pre [`(fn? ~f) `(integer? ~id)]}
-  `(let [exists?# (get ~coll ~id)]
-     (when-let [meta# ~(meta (resolve coll))]
-       (when-let [schema# (::schema meta#)]
-         ((::validate meta#) schema# (~f exists?# ~@args))))
-     (with-transaction ~db-spec (gensym "refdb-update!_")
-       {:sync (do
-                (alter ~coll fupdate-in [:items ~id] ~f ~@args)
-                (alter ~coll fupdate-in [:items ~id]
-                       assoc
-                       :id ~id
-                       :inst (java.util.Date.))
-                (when-not exists?#
-                  (if (integer? ~id)
-                    (alter ~coll update-in [:last-id] (fnil max 0) ~id))
-                  (alter ~coll update-in [:count] (fnil inc 0)))
-                (get ~coll ~id))
-        :post (write! ~db-spec ~coll ~(name coll) (get ~coll ~id))})))
+    => (update! coll 3 update-in [:key1 0 :key2] assoc :x \"string content\")"
+  [{:keys [colls] :as db-spec} coll id f & args]
+  {:pre [(fn? f) (integer? id)]}
+  (let [{:keys [name coll-ref]} (coll colls)
+        exists? (get coll-ref id)]
+    (validate db-spec coll (apply f exists? args))
+    (dosync
+     (alter coll-ref (partial apply fupdate-in) [:items id] f args)
+     (alter coll-ref fupdate-in [:items id]
+            assoc
+            :id id
+            :inst (java.util.Date.))
+     (when-not exists?
+       (if (integer? id)
+         (alter coll-ref update-in [:last-id] (fnil max 0) id))
+       (alter coll-ref update-in [:count] (fnil inc 0))))
+    (write! db-spec coll (get coll-ref id))))
 
 (defn history
   "Returns `n` items from the history of the record. If `n` is not specified,
@@ -357,3 +339,29 @@ If not wrapped in a transaction, wraps it's own."
    (nth (history coll record) n))
   ([coll record]
    (previous coll record 0)))
+
+(defmacro db-spec [{:keys [path no-write?] :as opts} colls]
+  `(let [path# (cond (string? ~path)
+                     (if-let [path# (io/resource ~path)]
+                       (io/file path#)
+                       (io/file ~path))
+                     (instance? java.net.URI ~path)
+                     (io/file ~path)
+                     :default ~path)
+         opts# (assoc ~opts :path path#)]
+     (assert path# "Option `path` must be specified.")
+     (assert (and (instance? java.io.File path#) (.exists path#))
+             "Option `path` must either be, or convert to a
+            java.io.File, and it must exist.")
+     (assoc opts#
+       :colls (->> ~colls
+                   (mapv #(let [var# (resolve %)]
+                            (assoc {:name (name %)}
+                              :coll-ref @var#
+                              :var var#)))
+                   (map #(let [n# (:name %)]
+                           [(keyword n#)
+                            (assoc %
+                              :coll-file (coll-file opts# n#)
+                              :meta-file (meta-file opts# n#))]))
+                   (into {})))))
