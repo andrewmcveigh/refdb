@@ -340,7 +340,7 @@ E.G.,
   ([coll record]
    (previous coll record 0)))
 
-(defmacro db-spec [{:keys [path no-write?] :as opts} & colls]
+(defmacro db-spec [{:keys [path no-write?] :as opts} colls]
   `(let [path# (cond (string? ~path)
                      (if-let [path# (io/resource ~path)]
                        (io/file path#)
@@ -354,7 +354,11 @@ E.G.,
              "Option `path` must either be, or convert to a
             java.io.File, and it must exist.")
      (assoc opts#
-       :colls (->> ~(mapv #(-> {:name (name %) :coll-ref % :var (resolve %)}) colls)
+       :colls (->> ~colls
+                   (mapv #(let [var# (resolve %)]
+                            (assoc {:name (name %)}
+                              :coll-ref @var#
+                              :var var#)))
                    (map #(let [n# (:name %)]
                            [(keyword n#)
                             (assoc %
