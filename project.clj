@@ -1,4 +1,4 @@
-(defproject com.andrewmcveigh/refdb "0.4.0"
+(defproject com.andrewmcveigh/refdb "0.4.1-SNAPSHOT"
   :description "File-backed ref-based \"database\""
   :url "http://github.com/andrewmcveigh/refdb"
   :license {:name "Eclipse Public License - v 1.0"
