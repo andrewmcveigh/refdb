@@ -38,9 +38,13 @@
   [x]
   (instance? java.util.regex.Pattern x))
 
-(defn init! [{:keys [colls] :as db-spec} & {:keys [only]}]
+(defn init! [{:keys [colls no-write?] :as db-spec} & {:keys [only]}]
   (doseq [[_ {:keys [coll-ref meta-file coll-file]}]
           (if only (select-keys colls only) colls)]
+    (when (and (not no-write?) (not (.exists coll-file)))
+      (spit coll-file ""))
+    (when (and (not no-write?) (not (.exists meta-file)))
+      (spit meta-file ""))
     (when (.exists meta-file)
       (dosync
        (ref-set coll-ref (load-file (.getCanonicalPath meta-file)))
@@ -275,6 +279,7 @@ E.G.,
   "Saves item(s) `m` to `coll`."
   [{:keys [colls] :as db-spec} coll m]
   (assert (map? m) "Argument `m` must satisfy map?.")
+  (assert (keyword? coll) "Argument `coll` must be a keyword, naming the coll.")
   (validate db-spec coll m)
   (let [{:keys [var coll-ref name coll-file meta-file]} (coll colls)
         exists? (and (:id m) (get coll-ref (:id m)))
@@ -349,10 +354,12 @@ E.G.,
                      (io/file ~path)
                      :default ~path)
          opts# (assoc ~opts :path path#)]
-     (assert path# "Option `path` must be specified.")
-     (assert (and (instance? java.io.File path#) (.exists path#))
-             "Option `path` must either be, or convert to a
-            java.io.File, and it must exist.")
+     (assert (or path# ~no-write?)
+             "Option `path`, or :no-write? must be specified.")
+     (assert (or (and (instance? java.io.File path#) (.exists path#))
+                 ~no-write?)
+             "If `no-write?` not specified, option `path` must either
+            be, or convert to a java.io.File, and it must exist.")
      (assoc opts#
        :colls (->> ~colls
                    (mapv #(let [var# (resolve %)]
@@ -361,7 +368,9 @@ E.G.,
                               :var var#)))
                    (map #(let [n# (:name %)]
                            [(keyword n#)
-                            (assoc %
-                              :coll-file (coll-file opts# n#)
-                              :meta-file (meta-file opts# n#))]))
+                            (if ~no-write?
+                              %
+                              (assoc %
+                                :coll-file (coll-file opts# n#)
+                                :meta-file (meta-file opts# n#)))]))
                    (into {})))))
