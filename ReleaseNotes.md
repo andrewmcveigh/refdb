@@ -1,3 +1,9 @@
+## v0.4.0
+
+- Change API to use db-spec, no macros
+
+- Add db-spec macro
+
 ## v0.3.0
 
  - Can use symbol, or ref to init
