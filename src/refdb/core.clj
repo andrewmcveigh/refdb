@@ -14,14 +14,6 @@
     (str (when (.startsWith (first args) "/") \/)
          (string/join "/" (map ensure-no-delims args)))))
 
-(defn coll-file [{:keys [path] :as db-spec} coll-name]
-  {:pre [path]}
-  (io/file path (format "%s.clj" coll-name)))
-
-(defn meta-file [{:keys [path] :as db-spec} coll-name]
-  {:pre [path]}
-  (io/file path (format "%s.meta.clj" coll-name)))
-
 (defn- transaction-dir [{:keys [path] :as db-spec}]
   (join-path path "_transaction"))
 
@@ -38,9 +30,12 @@
   [x]
   (instance? java.util.regex.Pattern x))
 
-(defn init! [{:keys [colls no-write?] :as db-spec} & {:keys [only]}]
+(defn dbref [db-spec coll]
+  (-> db-spec :collections coll :coll-ref))
+
+(defn init! [{:keys [collections no-write?] :as db-spec} & {:keys [only]}]
   (doseq [[_ {:keys [coll-ref meta-file coll-file]}]
-          (if only (select-keys colls only) colls)]
+          (if only (select-keys collections only) collections)]
     (when (and (not no-write?) (not (.exists coll-file)))
       (spit coll-file ""))
     (when (and (not no-write?) (not (.exists meta-file)))
@@ -66,10 +61,10 @@
   ([{:keys [no-write? path] :as db-spec} coll]
      {:pre [(or no-write? path)]}
      (write! db-spec coll nil))
-  ([{:keys [no-write? path colls] :as db-spec} coll record]
+  ([{:keys [no-write? path collections] :as db-spec} coll record]
      {:pre [(or no-write? path)]}
      (when-not no-write?
-       (let [{:keys [coll-file meta-file coll-ref]} (coll colls)]
+       (let [{:keys [coll-file meta-file coll-ref]} (coll collections)]
          (.mkdir (io/file path))
          (spit meta-file (pr-str (dissoc @coll-ref :items)))
          (if record
@@ -145,24 +140,25 @@
 
 (defn destroy!
   "Resets the `coll`, and the file associated."
-  [{:keys [no-write? path colls] :as db-spec} coll]
-  (do (dosync (ref-set (:coll-ref (coll colls)) {}))
+  [db-spec coll]
+  (do (dosync (ref-set (dbref db-spec coll) {}))
       (write! db-spec coll)))
 
 (defn get-id
   "Gets a the next available ID for the database."
-  [coll]
-  (dosync (alter coll update-in [:last-id] (fnil inc -1)))
-  (:last-id @coll))
+  [db-spec coll]
+  (let [coll (dbref db-spec coll)]
+    (dosync (alter coll update-in [:last-id] (fnil inc -1)))
+    (:last-id @coll)))
 
 (defn get
   "Gets an item from the collection by id."
-  [coll id]
-  (let [match (-> @coll (get-in [:items id]) first)]
+  [db-spec coll id]
+  (let [match (-> @(dbref db-spec coll) (get-in [:items id]) first)]
     (when-not (::deleted match) match)))
 
-(defn created [coll id]
-  (let [match (-> @coll (get-in [:items id]) last)]
+(defn created [db-spec coll id]
+  (let [match (-> @(dbref db-spec coll) (get-in [:items id]) last)]
     (when-not (::deleted match)
       (:inst match))))
 
@@ -198,12 +194,12 @@
                          :surname\"Annan\"})))
 
   If the predicate is `nil` or empty `{}`, returns all items."
-  ([coll pred]
+  ([db-spec coll pred]
      (remove ::deleted
              (filter (partial pred-match? pred)
-                     (map (comp first val) (:items @coll)))))
-  ([coll k v & kvs]
-     (find coll (apply hash-map (concat [k v] kvs)))))
+                     (map (comp first val) (:items @(dbref db-spec coll))))))
+  ([db-spec coll k v & kvs]
+     (find db-spec coll (apply hash-map (concat [k v] kvs)))))
 
 (defn ?and
   "Creates `?and` operation predicate."
@@ -271,17 +267,16 @@ E.G.,
          :sync)))
 
 (defn validate [db-spec coll m]
-  (when-let [meta (some-> db-spec :colls coll :var meta)]
+  (when-let [meta (some-> db-spec :collections coll :var meta)]
     (when-let [schema (when meta (::schema meta))]
       ((::validate meta) schema m))))
 
 (defn save!
   "Saves item(s) `m` to `coll`."
-  [{:keys [colls] :as db-spec} coll m]
+  [db-spec coll m]
   (assert (map? m) "Argument `m` must satisfy map?.")
   (assert (keyword? coll) "Argument `coll` must be a keyword, naming the coll.")
-  (validate db-spec coll m)
-  (let [{:keys [var coll-ref name coll-file meta-file]} (coll colls)
+  (let [coll-ref (dbref db-spec coll)
         exists? (and (:id m) (get coll-ref (:id m)))
         id (or (:id m) (get-id coll-ref))
         m (assoc m :id id :inst (java.util.Date.))]
@@ -309,11 +304,10 @@ E.G.,
   "'Updates' item with id `id` by applying fn `f` with `args` to it. E.G.,
 
     => (update! coll 3 update-in [:key1 0 :key2] assoc :x \"string content\")"
-  [{:keys [colls] :as db-spec} coll id f & args]
+  [db-spec coll id f & args]
   {:pre [(fn? f) (integer? id)]}
-  (let [{:keys [name coll-ref]} (coll colls)
+  (let [coll-ref (dbref db-spec coll)
         exists? (get coll-ref id)]
-    (validate db-spec coll (apply f exists? args))
     (dosync
      (alter coll-ref (partial apply fupdate-in) [:items id] f args)
      (alter coll-ref fupdate-in [:items id]
@@ -329,10 +323,11 @@ E.G.,
 (defn history
   "Returns `n` items from the history of the record. If `n` is not specified,
   all history is returned"
-  ([coll {id :id :as record} n]
-   (let [past (next (get-in @coll [:items id]))]
+  ([db-spec coll {id :id :as record} n]
+   (let [coll (dbref db-spec coll)
+         past (next (get-in @coll [:items id]))]
      (if n (take n past) past)))
-  ([coll record]
+  ([db-spec coll record]
    (history coll record nil)))
 
 (defn previous
@@ -340,38 +335,48 @@ E.G.,
   specified, the latest historical value before the current value of the
   record. If record is a historical value, previous will return the latest
   `nth` value before it."
-  ([coll record n]
-   (nth (history coll record) n))
-  ([coll record]
-   (previous coll record 0)))
+  ([db-spec coll record n]
+   (nth (history db-spec coll record) n))
+  ([db-spec coll record]
+   (previous db-spec coll record 0)))
 
-(defmacro db-spec [{:keys [path no-write?] :as opts} colls]
-  `(let [path# (cond (string? ~path)
-                     (if-let [path# (io/resource ~path)]
-                       (io/file path#)
-                       (io/file ~path))
-                     (instance? java.net.URI ~path)
-                     (io/file ~path)
-                     :default ~path)
-         opts# (assoc ~opts :path path#)]
-     (assert (or path# ~no-write?)
-             "Option `path`, or :no-write? must be specified.")
-     (assert (or (and (instance? java.io.File path#) (.exists path#))
-                 ~no-write?)
-             "If `no-write?` not specified, option `path` must either
+(defrecord Collection [coll-file meta-file coll-ref name])
+
+(defrecord RefDB [path collections])
+
+(defmethod print-dup RefDB [{:keys [path collections]} w]
+  (.write w (format "#<RefDB: \n  {:path %s\n   :collections %s}>"
+                    (pr-str path)
+                    (pr-str (map key collections)))))
+
+(defmethod print-method RefDB [{:keys [path collections]} w]
+  (.write w (format "#<RefDB: \n  {:path %s\n   :collections %s}>"
+                    (pr-str path)
+                    (pr-str (map key collections)))))
+
+(defn db-spec [{:keys [path no-write?] :as opts} & collections]
+  (let [path (cond (string? path)
+                   (if-let [resource (io/resource path)]
+                     (io/file resource)
+                     (io/file path))
+                   (instance? java.net.URI path)
+                   (io/file path)
+                   :default path)
+        opts (assoc opts :path path)]
+    (assert (or path no-write?)
+            "Option `path`, or :no-write? must be specified.")
+    (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
+            "If `no-write?` not specified, option `path` must either
             be, or convert to a java.io.File, and it must exist.")
-     (assoc opts#
-       :colls (->> '~colls
-                   (mapv #(let [var# (ns-resolve '~*ns* %)]
-                            (assert var# (format "Symbol %s must be resolvable in ns: %s" % ))
-                            (assoc {:name (name %)}
-                              :coll-ref @var#
-                              :var var#)))
-                   (map #(let [n# (:name %)]
-                           [(keyword n#)
-                            (if ~no-write?
-                              %
-                              (assoc %
-                                :coll-file (coll-file opts# n#)
-                                :meta-file (meta-file opts# n#)))]))
-                   (into {})))))
+    (map->RefDB
+     (assoc opts
+       :collections
+       (->> collections
+            (map #(let [n (name %)]
+                    [% (map->Collection
+                        (merge {:name n :coll-ref (ref nil)}
+                               (when-not no-write?
+                                 {:coll-file (io/file path (format "%s.clj" n))
+                                  :meta-file
+                                  (io/file path (format "%s.meta.clj" n))})))]))
+            (into {}))))))
