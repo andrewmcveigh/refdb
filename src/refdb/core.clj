@@ -277,8 +277,8 @@ E.G.,
   (assert (map? m) "Argument `m` must satisfy map?.")
   (assert (keyword? coll) "Argument `coll` must be a keyword, naming the coll.")
   (let [coll-ref (dbref db-spec coll)
-        exists? (and (:id m) (get coll-ref (:id m)))
-        id (or (:id m) (get-id coll-ref))
+        exists? (and (:id m) (get db-spec coll (:id m)))
+        id (or (:id m) (get-id db-spec coll))
         m (assoc m :id id :inst (java.util.Date.))]
     (dosync
      (alter coll-ref update-in [:items id] (fnil conj (list)) m)
@@ -307,7 +307,7 @@ E.G.,
   [db-spec coll id f & args]
   {:pre [(fn? f) (integer? id)]}
   (let [coll-ref (dbref db-spec coll)
-        exists? (get coll-ref id)]
+        exists? (get db-spec coll id)]
     (dosync
      (alter coll-ref (partial apply fupdate-in) [:items id] f args)
      (alter coll-ref fupdate-in [:items id]
@@ -318,7 +318,7 @@ E.G.,
        (if (integer? id)
          (alter coll-ref update-in [:last-id] (fnil max 0) id))
        (alter coll-ref update-in [:count] (fnil inc 0))))
-    (write! db-spec coll (get coll-ref id))))
+    (write! db-spec coll (get db-spec coll id))))
 
 (defn history
   "Returns `n` items from the history of the record. If `n` is not specified,
@@ -328,7 +328,7 @@ E.G.,
          past (next (get-in @coll [:items id]))]
      (if n (take n past) past)))
   ([db-spec coll record]
-   (history coll record nil)))
+   (history db-spec coll record nil)))
 
 (defn previous
   "Returns the `nth` last historical value for the record. If `n` is not
