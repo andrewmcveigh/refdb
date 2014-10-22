@@ -8,6 +8,20 @@
    [clojure.string :as string]
    [riddley.walk :as walk]))
 
+(defrecord Collection [coll-file meta-file coll-ref name])
+
+(defrecord RefDB [path collections])
+
+(defmethod print-dup RefDB [{:keys [path collections]} w]
+  (.write w (format "#<RefDB: \n  {:path %s\n   :collections %s}>"
+                    (pr-str path)
+                    (pr-str (map key collections)))))
+
+(defmethod print-method RefDB [{:keys [path collections]} w]
+  (.write w (format "#<RefDB: \n  {:path %s\n   :collections %s}>"
+                    (pr-str path)
+                    (pr-str (map key collections)))))
+
 (defn join-path [& args]
   {:pre [(every? (comp not nil?) args)]}
   (let [ensure-no-delims #(string/replace % #"(?:^/)|(?:/$)" "")]
@@ -267,15 +281,16 @@ E.G.,
          :sync)))
 
 (defn validate [db-spec coll m]
-  (when-let [meta (some-> db-spec :collections coll :var meta)]
-    (when-let [schema (when meta (::schema meta))]
-      ((::validate meta) schema m))))
+  (let [coll (some-> db-spec :collections coll)]
+    (when-let [schema (::schema coll)]
+      ((::validate coll) schema m))))
 
 (defn save!
   "Saves item(s) `m` to `coll`."
   [db-spec coll m]
   (assert (map? m) "Argument `m` must satisfy map?.")
   (assert (keyword? coll) "Argument `coll` must be a keyword, naming the coll.")
+  (validate db-spec coll m)
   (let [coll-ref (dbref db-spec coll)
         exists? (and (:id m) (get db-spec coll (:id m)))
         id (or (:id m) (get-id db-spec coll))
@@ -308,6 +323,7 @@ E.G.,
   {:pre [(fn? f) (integer? id)]}
   (let [coll-ref (dbref db-spec coll)
         exists? (get db-spec coll id)]
+    (validate db-spec coll (apply f exists? args))
     (dosync
      (alter coll-ref (partial apply fupdate-in) [:items id] f args)
      (alter coll-ref fupdate-in [:items id]
@@ -340,19 +356,23 @@ E.G.,
   ([db-spec coll record]
    (previous db-spec coll record 0)))
 
-(defrecord Collection [coll-file meta-file coll-ref name])
+(defn with-schema [coll-kw schema valid-fn]
+  (map->Collection
+   {:name (name coll-kw)
+    :key coll-kw
+    ::schema schema
+    ::validate valid-fn}))
 
-(defrecord RefDB [path collections])
+(defn coerce-coll [x]
+  (if (keyword? x) (map->Collection {:name (name x) :key x}) x))
 
-(defmethod print-dup RefDB [{:keys [path collections]} w]
-  (.write w (format "#<RefDB: \n  {:path %s\n   :collections %s}>"
-                    (pr-str path)
-                    (pr-str (map key collections)))))
-
-(defmethod print-method RefDB [{:keys [path collections]} w]
-  (.write w (format "#<RefDB: \n  {:path %s\n   :collections %s}>"
-                    (pr-str path)
-                    (pr-str (map key collections)))))
+(defn collection [{:keys [path no-write?]} {:keys [name key] :as collection}]
+  [key (merge collection
+              {:coll-ref (ref nil)}
+              (when-not no-write?
+                {:coll-file (io/file path (format "%s.clj" name))
+                 :meta-file
+                 (io/file path (format "%s.meta.clj" name))}))])
 
 (defn db-spec [{:keys [path no-write?] :as opts} & collections]
   (let [path (cond (string? path)
@@ -372,11 +392,5 @@ E.G.,
      (assoc opts
        :collections
        (->> collections
-            (map #(let [n (name %)]
-                    [% (map->Collection
-                        (merge {:name n :coll-ref (ref nil)}
-                               (when-not no-write?
-                                 {:coll-file (io/file path (format "%s.clj" n))
-                                  :meta-file
-                                  (io/file path (format "%s.meta.clj" n))})))]))
+            (map (comp (partial collection opts) coerce-coll))
             (into {}))))))

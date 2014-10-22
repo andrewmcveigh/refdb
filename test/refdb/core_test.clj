@@ -4,7 +4,8 @@
    [clojure.test :refer :all]
    [clojure.set :as set]
    [refdb.core :as db]
-   [riddley.walk :as walk]))
+   [riddley.walk :as walk]
+   [schema.core :as s]))
 
 (defn db-spec []
   (let [path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))]
@@ -66,3 +67,23 @@
                   (db/history db-spec :coll1 (first (db/find db-spec :coll1 nil))))))
       (db/save! db-spec :coll1 {:ttt 33 :ff 88}))
     (db/destroy! db-spec :coll1)))
+
+(def TypeX
+  {:x1 s/Int
+   :x2 [s/Int]})
+
+(deftest validate-test
+  (let [path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))
+        _ (.mkdirs (io/file path))
+        db-spec (db/db-spec {:path path}
+                            (db/with-schema :coll-x TypeX s/validate))]
+    (db/init! db-spec)
+    (is (db/save! db-spec :coll-x {:x1 10 :x2 [15 20]}))
+    (is (:error
+         (try
+           (db/save! db-spec :coll-x {:x1 "string" :x2 [15 20]})
+           (catch Exception e (ex-data e)))))
+    (is (:error
+         (try
+           (db/save! db-spec :coll-x {:x 10 :x2 [15 20]})
+           (catch Exception e (ex-data e)))))))
