@@ -1,3 +1,7 @@
+## v0.4.1
+
+ - Init files, add no-write to assertions
+
 ## v0.4.0
 
 - Change API to use db-spec, no macros
