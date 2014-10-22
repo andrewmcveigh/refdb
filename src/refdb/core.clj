@@ -361,7 +361,7 @@ E.G.,
              "If `no-write?` not specified, option `path` must either
             be, or convert to a java.io.File, and it must exist.")
      (assoc opts#
-       :colls (->> ~colls
+       :colls (->> '~colls
                    (mapv #(let [var# (resolve %)]
                             (assoc {:name (name %)}
                               :coll-ref @var#
