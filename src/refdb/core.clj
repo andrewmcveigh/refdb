@@ -362,7 +362,8 @@ E.G.,
             be, or convert to a java.io.File, and it must exist.")
      (assoc opts#
        :colls (->> '~colls
-                   (mapv #(let [var# (resolve %)]
+                   (mapv #(let [var# (ns-resolve '~*ns* %)]
+                            (assert var# (format "Symbol %s must be resolvable in ns: %s" % ))
                             (assoc {:name (name %)}
                               :coll-ref @var#
                               :var var#)))
