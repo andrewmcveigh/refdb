@@ -1,3 +1,7 @@
+## v0.4.3
+
+ - Resolve var in correct ns
+
 ## v0.4.2
 
  - Quote colls, so users don't have to
