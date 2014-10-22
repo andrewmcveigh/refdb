@@ -152,12 +152,6 @@
         (when form
           (if (= (:id form) t) form (recur (edn/read {:eof nil} r))))))))
 
-(defn destroy!
-  "Resets the `coll`, and the file associated."
-  [db-spec coll]
-  (do (dosync (ref-set (dbref db-spec coll) {}))
-      (write! db-spec coll)))
-
 (defn get-id
   "Gets a the next available ID for the database."
   [db-spec coll]
@@ -292,7 +286,8 @@ E.G.,
   (assert (keyword? coll) "Argument `coll` must be a keyword, naming the coll.")
   (validate db-spec coll m)
   (let [coll-ref (dbref db-spec coll)
-        exists? (and (:id m) (get db-spec coll (:id m)))
+        exists? (or (:exists? (meta m))
+                    (and (:id m) (get db-spec coll (:id m))))
         id (or (:id m) (get-id db-spec coll))
         m (assoc m :id id :inst (java.util.Date.))]
     (dosync
@@ -304,37 +299,26 @@ E.G.,
     (write! db-spec coll m)
     m))
 
+(defn update!
+  "'Updates' item with id `id` by applying fn `f` with `args`. The
+  item must exist in the collection to update it."
+  [db-spec coll id f & args]
+  {:pre [(fn? f) (integer? id)]}
+  (let [exists? (get db-spec coll id)]
+    (if exists?
+      (save! db-spec coll (with-meta (apply f exists? args) {:exists? true}))
+      (throw
+       (ex-info "Item with `id` must exist in coll." {:coll coll :id id})))))
+
 (defn delete! [db-spec coll m]
   {:pre [(:id m)]}
   (save! db-spec coll (assoc m ::deleted (java.util.Date.))))
 
-(defn fupdate-in
-  ([m [k & ks] f & args]
-   (if ks
-     (assoc m k (apply fupdate-in (clojure.core/get m k) ks f args))
-     (assoc m k (let [coll (clojure.core/get m k)]
-                  (conj coll (apply f (first coll) args)))))))
-
-(defn update!
-  "'Updates' item with id `id` by applying fn `f` with `args` to it. E.G.,
-
-    => (update! coll 3 update-in [:key1 0 :key2] assoc :x \"string content\")"
-  [db-spec coll id f & args]
-  {:pre [(fn? f) (integer? id)]}
-  (let [coll-ref (dbref db-spec coll)
-        exists? (get db-spec coll id)]
-    (validate db-spec coll (apply f exists? args))
-    (dosync
-     (alter coll-ref (partial apply fupdate-in) [:items id] f args)
-     (alter coll-ref fupdate-in [:items id]
-            assoc
-            :id id
-            :inst (java.util.Date.))
-     (when-not exists?
-       (if (integer? id)
-         (alter coll-ref update-in [:last-id] (fnil max 0) id))
-       (alter coll-ref update-in [:count] (fnil inc 0))))
-    (write! db-spec coll (get db-spec coll id))))
+(defn destroy!
+  "Resets the `coll`, and the file associated."
+  [db-spec coll]
+  (do (dosync (ref-set (dbref db-spec coll) {}))
+      (write! db-spec coll)))
 
 (defn history
   "Returns `n` items from the history of the record. If `n` is not specified,

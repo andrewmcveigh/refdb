@@ -23,6 +23,13 @@
       (is (= 6 (:t (first (db/find db-spec :coll1 {:m 2}))))))
     (db/destroy! db-spec :coll1)
     (is (nil? (load-file (str (-> db-spec :collections :coll1 :coll-file)))))
+    (is (= :coll1
+           (:coll
+            (try
+              (db/update! db-spec :coll1 1 assoc-in [:test1 :test2 :thsteh] 2)
+              (catch Exception e (ex-data e))))))
+    (db/save! db-spec :coll1 {:id 1})
+    (db/save! db-spec :coll1 {:id 3})
     (db/update! db-spec :coll1 1 assoc-in [:test1 :test2 :thsteh] 2)
     (db/update! db-spec :coll1 3 assoc-in [:test :test2 :thsteh] 2)
     (is (= {:id 3 :test {:test2 {:thsteh 2}}}
