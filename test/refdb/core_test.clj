@@ -11,7 +11,7 @@
 (defn db-spec []
   (let [path (str "/tmp/refdb-" (+ 5000 (int (rand 100000))))]
     (.mkdirs (io/file path))
-    (db/db-spec {:path path} coll1)))
+    (db/db-spec {:path path} [`coll1])))
 
 (deftest all-test
   (let [db-spec (db-spec)]
