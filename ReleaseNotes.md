@@ -1,3 +1,7 @@
+## v0.4.2
+
+ - Quote colls, so users don't have to
+
 ## v0.4.1
 
  - Init files, add no-write to assertions
