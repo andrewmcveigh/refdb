@@ -88,40 +88,6 @@
                 (map (partial spit-record coll-file)
                      (apply concat (vals (:items @coll-ref)))))))))))
 
-(defn funcall? [sexpr]
-  (and (sequential? sexpr)
-       (or (= `with-transaction (first sexpr))
-           (#{'let* 'let 'do 'if} (first sexpr))
-           (and (symbol? (first sexpr))
-                (or (fn? (first sexpr))
-                    (resolve (first sexpr)))))))
-
-(defn quote-sexprs [coll]
-  (walk/walk-exprs
-   funcall?
-   (fn [expr]
-     (cond (#{'let* 'let 'if} (first expr))
-           (apply list (concat (take 2 expr) (quote-sexprs (drop 2 expr))))
-           (= `with-transaction (first expr))
-           (quote-sexprs (first (drop 3 expr)))
-           :else
-           (apply list 'list
-                  (map #(cond (or (= 'do %)
-                                  (and (symbol? %)
-                                       (or (fn? %) (resolve %))))
-                              (if (resolve %)
-                                (let [m (meta (resolve %))]
-                                  (list 'quote
-                                        (symbol (name (ns-name (:ns m)))
-                                                (name (:name m)))))
-                                (list 'quote %))
-                              (funcall? %)
-                              (quote-sexprs %)
-                              :else %)
-                       expr))))
-   #{`with-transaction}
-   coll))
-
 (defn write-transaction!
   "Writes a `transaction` to durable storage."
   [{:keys [no-write? path] :as db-spec} {:keys [id inst name] :as transaction}]
