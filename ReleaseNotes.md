@@ -1,3 +1,13 @@
+## v0.5.0
+
+ - Can have coll-file when no-write true
+
+- Slim update! implementation, arrange API fns
+
+- Add schema, validate-tests
+
+- Change API to use new records
+
 ## v0.4.3
 
  - Resolve var in correct ns
