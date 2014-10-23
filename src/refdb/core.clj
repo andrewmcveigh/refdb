@@ -54,7 +54,7 @@
       (spit coll-file ""))
     (when (and (not no-write?) (not (.exists meta-file)))
       (spit meta-file ""))
-    (when (.exists meta-file)
+    (when (and meta-file (.exists meta-file))
       (dosync
        (ref-set coll-ref (load-file (.getCanonicalPath meta-file)))
        (when (.exists coll-file)
@@ -353,7 +353,7 @@ E.G.,
 (defn collection [{:keys [path no-write?]} {:keys [name key] :as collection}]
   [key (merge collection
               {:coll-ref (ref nil)}
-              (when-not no-write?
+              (when path
                 {:coll-file (io/file path (format "%s.clj" name))
                  :meta-file
                  (io/file path (format "%s.meta.clj" name))}))])
