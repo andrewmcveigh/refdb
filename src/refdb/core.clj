@@ -232,7 +232,7 @@
   "'Updates' item with id `id` by applying fn `f` with `args`. The
   item must exist in the collection to update it."
   [db-spec coll id f & args]
-  {:pre [(fn? f) (integer? id)]}
+  {:pre [(fn? f) (or (integer? id) (string? id) (keyword? id))]}
   (let [exists? (get db-spec coll id)]
     (if exists?
       (save! db-spec coll (with-meta (apply f exists? args) {:exists? true}))
