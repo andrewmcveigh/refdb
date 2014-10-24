@@ -88,40 +88,6 @@
                 (map (partial spit-record coll-file)
                      (apply concat (vals (:items @coll-ref)))))))))))
 
-(defn funcall? [sexpr]
-  (and (sequential? sexpr)
-       (or (= `with-transaction (first sexpr))
-           (#{'let* 'let 'do 'if} (first sexpr))
-           (and (symbol? (first sexpr))
-                (or (fn? (first sexpr))
-                    (resolve (first sexpr)))))))
-
-(defn quote-sexprs [coll]
-  (walk/walk-exprs
-   funcall?
-   (fn [expr]
-     (cond (#{'let* 'let 'if} (first expr))
-           (apply list (concat (take 2 expr) (quote-sexprs (drop 2 expr))))
-           (= `with-transaction (first expr))
-           (quote-sexprs (first (drop 3 expr)))
-           :else
-           (apply list 'list
-                  (map #(cond (or (= 'do %)
-                                  (and (symbol? %)
-                                       (or (fn? %) (resolve %))))
-                              (if (resolve %)
-                                (let [m (meta (resolve %))]
-                                  (list 'quote
-                                        (symbol (name (ns-name (:ns m)))
-                                                (name (:name m)))))
-                                (list 'quote %))
-                              (funcall? %)
-                              (quote-sexprs %)
-                              :else %)
-                       expr))))
-   #{`with-transaction}
-   coll))
-
 (defn write-transaction!
   "Writes a `transaction` to durable storage."
   [{:keys [no-write? path] :as db-spec} {:keys [id inst name] :as transaction}]
@@ -223,56 +189,19 @@
   ([head & tail]
    (with-meta `[~head ~@tail] {::? ::or})))
 
-(defmacro with-transaction
-  "Wraps `body` in a named transaction `t`. Will subsume inner transactions.
-Provides the dosync implementation for save!.
-
-Each body form should evaluate to satisfy map?, and the map should
-contain at least one keyval:
-
-    :sync (form ...)
-
-Optional keyvals are:
-
-    :pre (form ...)
-    :post (form ...)
-
-which are run before, and after the dosync :sync block respectively.
-
-E.G.,
-
-    (with-transaction retire
-      (save! employee {:id ... :retired (java.util.Date.)})
-      (save! employee {:id ... :active nil})
-      (save! account {:id ... :employee ... :status :retired})
-      {:pre (set-up ...)
-       :sync (alter account update-in [:items id] conj nil)
-       :post (doseq [x (file-seq (io/resource (format \"%s/images\" id)))]
-               (.delete x))})
-"
-  [db-spec t & body]
-  `(let [~'t2 ~(if (and (sequential? t) (= 'gensym (first t))) t `'~t)
-         ~'body2 ~(vec (quote-sexprs body))
-         before# (mapv :pre ~'body2)
-         sync# (mapv :sync ~'body2)
-         after# (mapv :post ~'body2)
-         trans# (with-meta
-                  {:name (name ~'t2)
-                   :meta ~(meta t)
-                   :inst (java.util.Date.)
-                   :id (java.util.UUID/randomUUID)
-                   :pre before#
-                   :sync sync#
-                   :post after#
-                   }
-                  {:type ::transaction})]
-         (prn trans#)
-     (-> trans#
-         (update-in [:pre] eval)
-         (update-in [:sync] #(dosync (eval %)))
-         (update-in [:post] eval)
-         (assoc :ok (write-transaction! ~db-spec trans#))
-         :sync)))
+(defmacro with-transaction [db-spec transaction & body]
+  `(do
+     (if (clojure.lang.LockingTransaction/isRunning)
+       (do ~@body)
+       (sync nil ~@body))
+     (write-transaction!
+      ~db-spec
+      (with-meta
+        (assoc ~transaction
+          :inst (java.util.Date.)
+          :id (java.util.UUID/randomUUID)
+          :body '~body)
+        {:type ::transaction}))))
 
 (defn validate [db-spec coll m]
   (let [coll (some-> db-spec :collections coll)]
@@ -303,7 +232,7 @@ E.G.,
   "'Updates' item with id `id` by applying fn `f` with `args`. The
   item must exist in the collection to update it."
   [db-spec coll id f & args]
-  {:pre [(fn? f) (integer? id)]}
+  {:pre [(fn? f) (or (integer? id) (string? id) (keyword? id))]}
   (let [exists? (get db-spec coll id)]
     (if exists?
       (save! db-spec coll (with-meta (apply f exists? args) {:exists? true}))
