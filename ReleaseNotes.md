@@ -1,3 +1,9 @@
+## v0.5.1
+
+ - Id for update can be int, string, or keyword
+
+- Redef with-transaction implementation
+
 ## v0.5.0
 
  - Can have coll-file when no-write true
