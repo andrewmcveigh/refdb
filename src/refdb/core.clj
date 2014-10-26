@@ -2,11 +2,9 @@
   "### The core namespace for the refdb library."
   (:refer-clojure :exclude [get find])
   (:require
-   [clojure.core.reducers :as r]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
-   [clojure.string :as string]
-   [riddley.walk :as walk]))
+   [clojure.string :as string]))
 
 (defrecord Collection [coll-file meta-file coll-ref name])
 
