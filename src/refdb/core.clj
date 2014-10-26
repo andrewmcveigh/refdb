@@ -298,7 +298,7 @@
             "Option `path`, or :no-write? must be specified.")
     (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
             "If `no-write?` not specified, option `path` must either
-            be, or convert to a java.io.File, and it must exist.")
+be, or convert to a java.io.File, and it must exist.")
     (map->RefDB
      (assoc opts
        :collections
