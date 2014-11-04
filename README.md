@@ -36,22 +36,54 @@ is also available (marginalia generated).
 
 ## Usage
 
-Refdb needs to know where it can find it's files. It gets this from
-`#'refdb.core/*path*`.
+All RefDB API functions need a db-spec passed to them as the first argument.
 
-Helpers `#'refdb.core/with-refdb-path` and `#'refdb.core/wrap-refdb` can be
-used to set the path in a flexible way.
+You can create a db-spec with the macro `#'refdb.core/db-spec`. `db-spec`
+takes a map of `opts`, `& colls`. `opts` must contain either `:path` or
+`:no-write` must be truthy. `colls` should be passed as keywords which name
+the colls.
+
+### #'refdb.core/db-spec
 
 ```clojure
-> (require '[refdb.core :as db])
+(require '[refdb.core :as db])
 
-> (def collection (ref nil))
+(db-spec {:path "data"} :cats :dogs)
+```
 
-> (db/with-refdb-path "/path/to/files"
+### #'refdb.core/init!
 
->   (db/init! collection) ; call in initialisation
+Once you have a `db-spec`, if you want to load anything into it, you should
+`init!` it...
 
->   (db/destroy! collection)
+```clojure
+(db/init! db-spec)
+```
+... to initialize all collections in the `db-spec`, or...
+
+```clojure
+(db/init! db-spec :only #{:cats})
+```
+... to only initialize some of them.
+
+### #'refdb.core/destroy!
+
+You can wipe out a collection with `destroy!`. *Be careful*, this operation
+will destroy the data, in memory and from durable storage.
+
+```clojure
+(db/destroy! db-spec :dogs) ; don't hurt the cats
+```
+
+### #'refdb.core/get
+
+You can get an item by its ID. IDs can be anything.
+
+```clojure
+(db/get db-spec :cats 1000)
+```
+
+```clojure
 
 >   (db/save! collection {:key val ...})
 
