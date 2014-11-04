@@ -1,3 +1,17 @@
+## v0.5.2
+
+- Update find docs/docstring
+- Docstring for init!
+- Remove riddley require
+- Write docstring for db-spec, make 1st API fn
+- Add basic desc to write operations
+- Add deleted docs
+- Describe and/or behaviour
+- Describe find/predicate syntax
+- Update README.md for new API
+- Remove whitespace from assert message
+- Remove unused namespaces
+
 ## v0.5.1
 
  - Id for update can be int, string, or keyword
