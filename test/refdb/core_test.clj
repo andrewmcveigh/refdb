@@ -4,7 +4,6 @@
    [clojure.test :refer :all]
    [clojure.set :as set]
    [refdb.core :as db]
-   [riddley.walk :as walk]
    [schema.core :as s]))
 
 (defn db-spec []

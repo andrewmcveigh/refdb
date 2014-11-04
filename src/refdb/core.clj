@@ -2,11 +2,9 @@
   "### The core namespace for the refdb library."
   (:refer-clojure :exclude [get find])
   (:require
-   [clojure.core.reducers :as r]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
-   [clojure.string :as string]
-   [riddley.walk :as walk]))
+   [clojure.string :as string]))
 
 (defrecord Collection [coll-file meta-file coll-ref name])
 
@@ -47,7 +45,65 @@
 (defn dbref [db-spec coll]
   (-> db-spec :collections coll :coll-ref))
 
-(defn init! [{:keys [collections no-write?] :as db-spec} & {:keys [only]}]
+(defn with-schema [coll-kw schema valid-fn]
+  (map->Collection
+   {:name (name coll-kw)
+    :key coll-kw
+    ::schema schema
+    ::validate valid-fn}))
+
+(defn coerce-coll [x]
+  (if (keyword? x) (map->Collection {:name (name x) :key x}) x))
+
+(defn collection [{:keys [path no-write?]} {:keys [name key] :as collection}]
+  [key (merge collection
+              {:coll-ref (ref nil)}
+              (when path
+                {:coll-file (io/file path (format "%s.clj" name))
+                 :meta-file
+                 (io/file path (format "%s.meta.clj" name))}))])
+
+(defn db-spec
+  "Creates a db-spec. Takes a map of `opts`, `& collections`. `opts` must
+  contain either `:path` or `:no-write` must be truthy. `:path` can be a
+  `java.net.URI`, a `java.io.File`, or a `String`, and it must point to
+  an existing file. `collections` should be passed as keywords which
+  name the collections. E.G.,
+
+    (db-spec {:path \"data\"} :cats :dogs)
+"
+  [{:keys [path no-write?] :as opts} & collections]
+  (let [path (cond (string? path)
+                   (if-let [resource (io/resource path)]
+                     (io/file resource)
+                     (io/file path))
+                   (instance? java.net.URI path)
+                   (io/file path)
+                   :default path)
+        opts (assoc opts :path path)]
+    (assert (or path no-write?)
+            "Option `path`, or :no-write? must be specified.")
+    (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
+            "If `no-write?` not specified, option `path` must either
+be, or convert to a java.io.File, and it must exist.")
+    (map->RefDB
+     (assoc opts
+       :collections
+       (->> collections
+            (map (comp (partial collection opts) coerce-coll))
+            (into {}))))))
+
+(defn init!
+  "Initialize the collections in a db-spec.
+
+    (db/init! db-spec)
+
+... to initialize all collections in the `db-spec`, or...
+
+    (db/init! db-spec :only #{:cats})
+
+... to only initialize some of them."
+  [{:keys [collections no-write?] :as db-spec} & {:keys [only]}]
   (doseq [[_ {:keys [coll-ref meta-file coll-file]}]
           (if only (select-keys collections only) collections)]
     (when (and (not no-write?) (not (.exists coll-file)))
@@ -155,26 +211,6 @@
                pred)
           :default nil)))
 
-(defn find
-  "Finds an item, or items in the collection by predicate. The predicate should
-  be a map of `{:keyname \"wanted value\"}`. The default query operation is
-  `?and`, however specifying separate level `?and`/`?or` operations is
-  possible. E.G.,
-
-    => (find coll
-             (?or (?and {:first-name \"Benjamin\"
-                         :surname \"Netanyahu\"})
-                  (?and {:first-name \"Kofi\"
-                         :surname\"Annan\"})))
-
-  If the predicate is `nil` or empty `{}`, returns all items."
-  ([db-spec coll pred]
-     (remove ::deleted
-             (filter (partial pred-match? pred)
-                     (map (comp first val) (:items @(dbref db-spec coll))))))
-  ([db-spec coll k v & kvs]
-     (find db-spec coll (apply hash-map (concat [k v] kvs)))))
-
 (defn ?and
   "Creates `?and` operation predicate."
   ([pred]
@@ -188,6 +224,55 @@
    (with-meta pred {::? ::or}))
   ([head & tail]
    (with-meta `[~head ~@tail] {::? ::or})))
+
+(defn find
+  "Finds an item, or items in the collection by predicate. The
+  predicate should be a map of `{:keyname \"wanted value\"}`. The
+  default query operation is `?and`, however specifying separate level
+  `?and`/`?or` operations is possible. If the predicate is `nil` or
+  empty `{}`, returns all items.  E.G.,
+
+    (db/find db-spec :cats {:color \"orange\" :name \"Reg\"})
+
+    => ({:id 457 :breed \"Tabby\" :color \"orange\" :name \"Reg\"}, ...)
+
+  Predicates can match by `literal?` values, regexes and functions.
+
+    (db/find db-spec :cats {:color #\"(orange)|(brown)\"})
+    (db/find db-spec :cats {:color #(or (= % \"brown\") (= % \"orange))\"})
+
+    => ({:id 457 :breed \"Tabby\" :color \"orange\" :name \"Reg\"}, ...)
+
+  Predicates can have sub-maps, and sets can be used to partially match
+  collections.
+
+    (db/find db-spec :cats {:friends #{\"Tom\"}})
+
+    => ({:id 457 :breed \"Persian\" :color \"Grey\" :name \"Bosco\" :friends [\"Tom\", \"Dick\", \"Harry\"]}, ...)
+
+  You can also search deeper into a match using a vector as a key.
+
+    (db/find db-spec :cats {[:skills :jumping :max-height] 20})
+
+  By default a predicate's matching behavior for key-vals is AND. E.G.,
+
+    (db/find db-spec :cats {:color \"orange\" :name \"Reg\"})
+
+  finds cats with `:color` `\"orange\"` AND `:name` `\"Reg\"`. It's possible
+  to specify that the predicate should use OR matching behavior, or a
+  combination. E.G.,
+
+    (require '[refdb.core :as db :refer [?and ?or]])
+
+    (db/find db-spec :cats (?or (?and {:name \"Timmy\"
+                                       :color \"Orange\"})
+                                (?and {:friends #{\"Timmy\"}})))
+
+"
+  [db-spec coll pred]
+  (remove ::deleted
+          (filter (partial pred-match? pred)
+                  (map (comp first val) (:items @(dbref db-spec coll))))))
 
 (defmacro with-transaction [db-spec transaction & body]
   `(do
@@ -269,41 +354,3 @@
   ([db-spec coll record]
    (previous db-spec coll record 0)))
 
-(defn with-schema [coll-kw schema valid-fn]
-  (map->Collection
-   {:name (name coll-kw)
-    :key coll-kw
-    ::schema schema
-    ::validate valid-fn}))
-
-(defn coerce-coll [x]
-  (if (keyword? x) (map->Collection {:name (name x) :key x}) x))
-
-(defn collection [{:keys [path no-write?]} {:keys [name key] :as collection}]
-  [key (merge collection
-              {:coll-ref (ref nil)}
-              (when path
-                {:coll-file (io/file path (format "%s.clj" name))
-                 :meta-file
-                 (io/file path (format "%s.meta.clj" name))}))])
-
-(defn db-spec [{:keys [path no-write?] :as opts} & collections]
-  (let [path (cond (string? path)
-                   (if-let [resource (io/resource path)]
-                     (io/file resource)
-                     (io/file path))
-                   (instance? java.net.URI path)
-                   (io/file path)
-                   :default path)
-        opts (assoc opts :path path)]
-    (assert (or path no-write?)
-            "Option `path`, or :no-write? must be specified.")
-    (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
-            "If `no-write?` not specified, option `path` must either
-            be, or convert to a java.io.File, and it must exist.")
-    (map->RefDB
-     (assoc opts
-       :collections
-       (->> collections
-            (map (comp (partial collection opts) coerce-coll))
-            (into {}))))))
