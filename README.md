@@ -38,12 +38,12 @@ is also available (marginalia generated).
 
 All RefDB API functions need a db-spec passed to them as the first argument.
 
+### #'refdb.core/db-spec
+
 You can create a db-spec with the macro `#'refdb.core/db-spec`. `db-spec`
 takes a map of `opts`, `& colls`. `opts` must contain either `:path` or
 `:no-write` must be truthy. `colls` should be passed as keywords which name
 the colls.
-
-### #'refdb.core/db-spec
 
 ```clojure
 (require '[refdb.core :as db])
@@ -81,7 +81,46 @@ You can get an item by its ID. IDs can be anything.
 
 ```clojure
 (db/get db-spec :cats 1000)
+
+=> {:id 1000 :name "Cedric" :breed "Tabby"}
 ```
+
+### #'refdb.core/find
+
+Or you can find items(s) matching a predicate map.
+
+```clojure
+(db/find db-spec :cats {:color "orange" :name "Reg"})
+
+=> ({:id 457 :breed "Tabby" :color "orange" :name "Reg"}, ...)
+```
+
+Predicates can match by `literal?` values, regexes and functions.
+
+```clojure
+(db/find db-spec :cats {:color #"(orange)|(brown)"})
+(db/find db-spec :cats {:color #(or (= % "brown") (= % "orange))"})
+
+=> ({:id 457 :breed "Tabby" :color "orange" :name "Reg"}, ...)
+```
+
+Predicates can have sub-maps, and sets can be used to partially match
+collections.
+
+```clojure
+(db/find db-spec :cats {:friends #{"Tom"}})
+
+=> ({:id 457 :breed "Persian" :color "Grey" :name "Bosco" :friends ["Tom", "Dick", "Harry"]}, ...)
+```
+
+You can also search deeper into a match using a vector as a key.
+
+```clojure
+(db/find db-spec :cats {[:skills :jumping :max-height] 20})
+```
+
+#### #'refdb.core/?and and #'refdb.core/?or
+
 
 ```clojure
 
