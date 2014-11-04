@@ -121,6 +121,23 @@ You can also search deeper into a match using a vector as a key.
 
 #### #'refdb.core/?and and #'refdb.core/?or
 
+By default a predicate's matching behavior for key-vals is AND. E.G.,
+
+```clojure
+(db/find db-spec :cats {:color "orange" :name "Reg"})
+```
+
+finds cats with `:color` `"orange"` AND `:name` `"Reg"`. It's possible
+to specify that the predicate should use OR matching behavior, or a
+combination. E.G.,
+
+```clojure
+(require '[refdb.core :as db :refer [?and ?or]])
+
+(db/find db-spec :cats (?or (?and {:name "Timmy"
+                                   :color "Orange"})
+                            (?and {:friends #{"Timmy"}})))
+```
 
 ```clojure
 
@@ -129,12 +146,6 @@ You can also search deeper into a match using a vector as a key.
 >   (db/update! collection assoc-in [0 :key1] {:key val ...})
 
 >   (db/update! collection update-in [0 :key2] inc)
-
->   (db/get collection 1000) ; get by :id
-
->   (db/find collection :first-name "Abbie" :last-name "Hoffman")
-
->   (db/find collection {[:keys :in :nested :maps] #"^Search.by\sregex.*$"})
 
 > )
 ```
