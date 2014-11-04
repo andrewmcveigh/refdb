@@ -41,9 +41,11 @@ All RefDB API functions need a db-spec passed to them as the first argument.
 ### #'refdb.core/db-spec
 
 You can create a db-spec with the macro `#'refdb.core/db-spec`. `db-spec`
-takes a map of `opts`, `& colls`. `opts` must contain either `:path` or
-`:no-write` must be truthy. `colls` should be passed as keywords which name
-the colls.
+takes a map of `opts`, `& collections`. `opts` must contain either
+`:path` or `:no-write` must be truthy. `:path` can be a
+`java.net.URI`, a `java.io.File`, or a `String`, and it must point to
+an existing file `collections` should be passed as keywords which name
+the collections. E.G.,
 
 ```clojure
 (require '[refdb.core :as db])

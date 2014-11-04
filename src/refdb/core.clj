@@ -45,6 +45,54 @@
 (defn dbref [db-spec coll]
   (-> db-spec :collections coll :coll-ref))
 
+(defn with-schema [coll-kw schema valid-fn]
+  (map->Collection
+   {:name (name coll-kw)
+    :key coll-kw
+    ::schema schema
+    ::validate valid-fn}))
+
+(defn coerce-coll [x]
+  (if (keyword? x) (map->Collection {:name (name x) :key x}) x))
+
+(defn collection [{:keys [path no-write?]} {:keys [name key] :as collection}]
+  [key (merge collection
+              {:coll-ref (ref nil)}
+              (when path
+                {:coll-file (io/file path (format "%s.clj" name))
+                 :meta-file
+                 (io/file path (format "%s.meta.clj" name))}))])
+
+(defn db-spec
+  "Creates a db-spec. Takes a map of `opts`, `& collections`. `opts` must
+  contain either `:path` or `:no-write` must be truthy. `:path` can be a
+  `java.net.URI`, a `java.io.File`, or a `String`, and it must point to
+  an existing file `collections` should be passed as keywords which
+  name the collections. E.G.,
+
+    (db-spec {:path \"data\"} :cats :dogs)
+"
+  [{:keys [path no-write?] :as opts} & collections]
+  (let [path (cond (string? path)
+                   (if-let [resource (io/resource path)]
+                     (io/file resource)
+                     (io/file path))
+                   (instance? java.net.URI path)
+                   (io/file path)
+                   :default path)
+        opts (assoc opts :path path)]
+    (assert (or path no-write?)
+            "Option `path`, or :no-write? must be specified.")
+    (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
+            "If `no-write?` not specified, option `path` must either
+be, or convert to a java.io.File, and it must exist.")
+    (map->RefDB
+     (assoc opts
+       :collections
+       (->> collections
+            (map (comp (partial collection opts) coerce-coll))
+            (into {}))))))
+
 (defn init! [{:keys [collections no-write?] :as db-spec} & {:keys [only]}]
   (doseq [[_ {:keys [coll-ref meta-file coll-file]}]
           (if only (select-keys collections only) collections)]
@@ -267,41 +315,3 @@
   ([db-spec coll record]
    (previous db-spec coll record 0)))
 
-(defn with-schema [coll-kw schema valid-fn]
-  (map->Collection
-   {:name (name coll-kw)
-    :key coll-kw
-    ::schema schema
-    ::validate valid-fn}))
-
-(defn coerce-coll [x]
-  (if (keyword? x) (map->Collection {:name (name x) :key x}) x))
-
-(defn collection [{:keys [path no-write?]} {:keys [name key] :as collection}]
-  [key (merge collection
-              {:coll-ref (ref nil)}
-              (when path
-                {:coll-file (io/file path (format "%s.clj" name))
-                 :meta-file
-                 (io/file path (format "%s.meta.clj" name))}))])
-
-(defn db-spec [{:keys [path no-write?] :as opts} & collections]
-  (let [path (cond (string? path)
-                   (if-let [resource (io/resource path)]
-                     (io/file resource)
-                     (io/file path))
-                   (instance? java.net.URI path)
-                   (io/file path)
-                   :default path)
-        opts (assoc opts :path path)]
-    (assert (or path no-write?)
-            "Option `path`, or :no-write? must be specified.")
-    (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
-            "If `no-write?` not specified, option `path` must either
-be, or convert to a java.io.File, and it must exist.")
-    (map->RefDB
-     (assoc opts
-       :collections
-       (->> collections
-            (map (comp (partial collection opts) coerce-coll))
-            (into {}))))))
