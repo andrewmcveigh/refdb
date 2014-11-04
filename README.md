@@ -141,16 +141,18 @@ combination. E.G.,
 
 ### Writing with #'refdb.core/save! and #'refdb.core/update!
 
+`#'refdb.core/save!` writes data to the "database", and `#'refdb.core/update!`
+updates the data in the "database" by applying a function and args,
+much like `#'clojure.core/swap!` works.
+
 ```clojure
+(db/save! db-spec :cats {:key val ...})
 
->   (db/save! collection {:key val ...})
+(db/update! db-spec :cats assoc-in [0 :key1] {:key val ...})
 
->   (db/update! collection assoc-in [0 :key1] {:key val ...})
-
->   (db/update! collection update-in [0 :key2] inc)
-
-> )
+(db/update! db-spec :cats update-in [0 :key2] inc)
 ```
+
 ### #'refdb.core/delete!
 
 Adds a `:refdb.core/deleted true` key-val to the data, and so by default
