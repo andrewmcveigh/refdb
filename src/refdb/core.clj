@@ -93,7 +93,17 @@ be, or convert to a java.io.File, and it must exist.")
             (map (comp (partial collection opts) coerce-coll))
             (into {}))))))
 
-(defn init! [{:keys [collections no-write?] :as db-spec} & {:keys [only]}]
+(defn init!
+  "Initialize the collections in a db-spec.
+
+    (db/init! db-spec)
+
+... to initialize all collections in the `db-spec`, or...
+
+    (db/init! db-spec :only #{:cats})
+
+... to only initialize some of them."
+  [{:keys [collections no-write?] :as db-spec} & {:keys [only]}]
   (doseq [[_ {:keys [coll-ref meta-file coll-file]}]
           (if only (select-keys collections only) collections)]
     (when (and (not no-write?) (not (.exists coll-file)))
