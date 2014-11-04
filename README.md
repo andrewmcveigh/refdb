@@ -139,6 +139,8 @@ combination. E.G.,
                             (?and {:friends #{"Timmy"}})))
 ```
 
+### Writing with #'refdb.core/save! and #'refdb.core/update!
+
 ```clojure
 
 >   (db/save! collection {:key val ...})
@@ -149,6 +151,10 @@ combination. E.G.,
 
 > )
 ```
+### #'refdb.core/delete!
+
+Adds a `:refdb.core/deleted true` key-val to the data, and so by default
+will not be matched by `find` or `get`. The data is not actually deleted.
 
 ## License
 
