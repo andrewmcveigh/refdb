@@ -89,7 +89,8 @@ You can get an item by its ID. IDs can be anything.
 
 ### #'refdb.core/find
 
-Or you can find items(s) matching a predicate map.
+Or you can find items(s) matching a predicate map. If the predicate is
+an empty map `{}` or `nil`, returns all items.
 
 ```clojure
 (db/find db-spec :cats {:color "orange" :name "Reg"})
