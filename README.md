@@ -24,7 +24,7 @@ If you are using Maven, add the following repository definition to your `pom.xml
 With Leiningen:
 
 ``` clj
-[com.andrewmcveigh/refdb "0.6.0"]
+[com.andrewmcveigh/refdb "0.6.1"]
 ```
 
 The most recent release [can be found on Clojars](https://clojars.org/com.andrewmcveigh/refdb).

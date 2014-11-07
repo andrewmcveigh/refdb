@@ -1,3 +1,7 @@
+## v0.6.1
+
+- Migrate backs up dir first
+
 ## v0.6.0
 
 - Implement refdb API for v0.6 storage
