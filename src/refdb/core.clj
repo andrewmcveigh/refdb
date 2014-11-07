@@ -5,7 +5,8 @@
    [clojure.edn :as edn]
    [clojure.java.io :as io]
    [clojure.string :as string]
-   [refdb.internal.core :refer [load-form]]))
+   [refdb.internal.core :refer [load-form]]
+   [refdb.migrate :as migrate]))
 
 (def refdb-version "0.6")
 
@@ -13,14 +14,22 @@
 
 (defrecord RefDB [path collections])
 
-(defmethod print-dup RefDB [{:keys [path collections]} w]
-  (.write w (format "#<RefDB: \n  {:path %s\n   :collections %s}>"
+(defmethod print-dup RefDB [{:keys [path collections version]} w]
+  (.write w (format "#<RefDB:
+  {:path %s
+   :version %s
+   :collections %s}>"
                     (pr-str path)
+                    (pr-str version)
                     (pr-str (map key collections)))))
 
-(defmethod print-method RefDB [{:keys [path collections]} w]
-  (.write w (format "#<RefDB: \n  {:path %s\n   :collections %s}>"
+(defmethod print-method RefDB [{:keys [path collections version]} w]
+  (.write w (format "#<RefDB:
+  {:path %s
+   :version %s
+   :collections %s}>"
                     (pr-str path)
+                    (pr-str version)
                     (pr-str (map key collections)))))
 
 (defn db-version [{:keys [version] :as db-spec}]
@@ -104,7 +113,7 @@
         (if (.exists meta)
           (load-form meta)
           {:version (or version "0.5") :collections (set (map :key collections))})
-        opts (assoc opts :path path :meta meta :version version)]
+        opts (assoc opts :path path :version version)]
     (assert (or path no-write?)
             "Option `path`, or :no-write? must be specified.")
     (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
