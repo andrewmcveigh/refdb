@@ -2865,16 +2865,14 @@ net.brehaut.ClojureTools = (function (SH) {
     build_tree: build_tree
   };
 })(SyntaxHighlighter);
-</script><title>com.andrewmcveigh/refdb -- Marginalia</title></head><body><table><tr><td class="docs"><div class="header"><h1 class="project-name"><a href="http://github.com/andrewmcveigh/refdb">com.andrewmcveigh/refdb</a></h1><h2 class="project-version">0.6.0</h2><br /><p>File-backed ref-based "database"</p>
-</div><div class="dependencies"><h3>dependencies</h3><table><tr><td class="dep-name">org.clojure/clojure</td><td class="dotted"><hr /></td><td class="dep-version">1.6.0</td></tr></table></div></td><td class="codes" style="text-align: center; vertical-align: middle;color: #666;padding-right:20px"><br /><br /><br />(this space intentionally left almost blank)</td></tr><tr><td class="docs"><div class="toc"><a name="toc"><h3>namespaces</h3></a><ul><li><a href="#refdb.core">refdb.core</a></li><li><a href="#refdb.internal.core">refdb.internal.core</a></li><li><a href="#refdb.migrate">refdb.migrate</a></li></ul></div></td><td class="codes">&nbsp;</td></tr><tr><td class="docs"><div class="docs-header"><a class="anchor" href="#refdb.core" name="refdb.core"><h1 class="project-name">refdb.core</h1><a class="toc-link" href="#toc">toc</a></a></div></td><td class="codes" /></tr><tr><td class="docs"><h3>The core namespace for the refdb library.</h3>
+</script><title>com.andrewmcveigh/refdb -- Marginalia</title></head><body><table><tr><td class="docs"><div class="header"><h1 class="project-name"><a href="http://github.com/andrewmcveigh/refdb">com.andrewmcveigh/refdb</a></h1><h2 class="project-version">0.5.2</h2><br /><p>File-backed ref-based "database"</p>
+</div><div class="dependencies"><h3>dependencies</h3><table><tr><td class="dep-name">org.clojure/clojure</td><td class="dotted"><hr /></td><td class="dep-version">1.6.0</td></tr></table></div></td><td class="codes" style="text-align: center; vertical-align: middle;color: #666;padding-right:20px"><br /><br /><br />(this space intentionally left almost blank)</td></tr><tr><td class="docs"><div class="toc"><a name="toc"><h3>namespaces</h3></a><ul><li><a href="#refdb.core">refdb.core</a></li></ul></div></td><td class="codes">&nbsp;</td></tr><tr><td class="docs"><div class="docs-header"><a class="anchor" href="#refdb.core" name="refdb.core"><h1 class="project-name">refdb.core</h1><a class="toc-link" href="#toc">toc</a></a></div></td><td class="codes" /></tr><tr><td class="docs"><h3>The core namespace for the refdb library.</h3>
 </td><td class="codes"><pre class="brush: clojure">(ns refdb.core
   (:refer-clojure :exclude [get find])
   (:require
    [clojure.edn :as edn]
    [clojure.java.io :as io]
-   [clojure.string :as string]
-   [refdb.internal.core :refer [load-form]]))</pre></td></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(def refdb-version &quot;0.6&quot;)</pre></td></tr><tr><td class="docs">
+   [clojure.string :as string]))</pre></td></tr><tr><td class="docs">
 </td><td class="codes"><pre class="brush: clojure">(defrecord Collection [coll-file meta-file coll-ref name])</pre></td></tr><tr><td class="docs">
 </td><td class="codes"><pre class="brush: clojure">(defrecord RefDB [path collections])</pre></td></tr><tr><td class="docs">
 </td><td class="codes"><pre class="brush: clojure">(defmethod print-dup RefDB [{:keys [path collections]} w]
@@ -2885,9 +2883,6 @@ net.brehaut.ClojureTools = (function (SH) {
   (.write w (format &quot;#&lt;RefDB: \n  {:path %s\n   :collections %s}&gt;&quot;
                     (pr-str path)
                     (pr-str (map key collections)))))</pre></td></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(defn db-version [{:keys [version] :as db-spec}]
-  (assert version &quot;No version found, assume &lt; 6.0&quot;)
-  version)</pre></td></tr><tr><td class="docs">
 </td><td class="codes"><pre class="brush: clojure">(defn join-path [&amp; args]
   {:pre [(every? (comp not nil?) args)]}
   (let [ensure-no-delims #(string/replace % #&quot;(?:^/)|(?:/$)&quot; )]
@@ -2913,23 +2908,13 @@ net.brehaut.ClojureTools = (function (SH) {
     ::validate valid-fn}))</pre></td></tr><tr><td class="docs">
 </td><td class="codes"><pre class="brush: clojure">(defn coerce-coll [x]
   (if (keyword? x) (map-&gt;Collection {:name (name x) :key x}) x))</pre></td></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(defmulti collection (fn [{:keys [version]} &amp; _] version))</pre></td></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(defmethod collection &quot;0.6&quot;
-  [{:keys [path no-write? version]} {:keys [name key] :as collection}]
-  [key (merge collection
-              {:coll-ref (ref nil)
-               :meta (ref {:items #{} :count 0})}
-              (when path
-                {:coll-dir (io/file path name)
-                 :meta-file (-&gt; path (io/file name) (io/file &quot;meta&quot;))}))])</pre></td></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(defmethod collection &quot;0.5&quot;
-  [{:keys [path no-write? version]} {:keys [name key] :as collection}]
+</td><td class="codes"><pre class="brush: clojure">(defn collection [{:keys [path no-write?]} {:keys [name key] :as collection}]
   [key (merge collection
               {:coll-ref (ref nil)}
               (when path
                 {:coll-file (io/file path (format &quot;%s.clj&quot; name))
-                 :coll-dir (io/file path name)
-                 :meta-file (io/file path (format &quot;%s.meta.clj&quot; name))}))])</pre></td></tr><tr><td class="docs"><p>Creates a db-spec. Takes a map of <code>opts</code>, <code>&amp; collections</code>. <code>opts</code> must
+                 :meta-file
+                 (io/file path (format &quot;%s.meta.clj&quot; name))}))])</pre></td></tr><tr><td class="docs"><p>Creates a db-spec. Takes a map of <code>opts</code>, <code>&amp; collections</code>. <code>opts</code> must
   contain either <code>:path</code> or <code>:no-write</code> must be truthy. <code>:path</code> can be a
   <code>java.net.URI</code>, a <code>java.io.File</code>, or a <code>String</code>, and it must point to
   an existing file. <code>collections</code> should be passed as keywords which
@@ -2938,7 +2923,7 @@ net.brehaut.ClojureTools = (function (SH) {
 <pre><code>(db-spec {:path "data"} :cats :dogs)
 </code></pre>
 </td><td class="codes"><pre class="brush: clojure">(defn db-spec
-  [{:keys [path no-write? version] :as opts} &amp; collections]
+  [{:keys [path no-write?] :as opts} &amp; collections]
   (let [path (cond (string? path)
                    (if-let [resource (io/resource path)]
                      (io/file resource)
@@ -2946,17 +2931,12 @@ net.brehaut.ClojureTools = (function (SH) {
                    (instance? java.net.URI path)
                    (io/file path)
                    :default path)
-        meta (io/file path &quot;meta&quot;)
-        {:keys [version] :as meta}
-        (if (.exists meta)
-          (load-form meta)
-          {:version (or version &quot;0.5&quot;) :collections (set (map :key collections))})
-        opts (assoc opts :path path :meta meta :version version)]
+        opts (assoc opts :path path)]
     (assert (or path no-write?)
             &quot;Option `path`, or :no-write? must be specified.&quot;)
     (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
             &quot;If `no-write?` not specified, option `path` must either
-            be, or convert to a java.io.File, and it must exist.&quot;)
+be, or convert to a java.io.File, and it must exist.&quot;)
     (map-&gt;RefDB
      (assoc opts
        :collections
@@ -2974,38 +2954,43 @@ net.brehaut.ClojureTools = (function (SH) {
 
 <p>... to only initialize some of them.</p>
 </td><td class="codes"><pre class="brush: clojure">(defn init!
-  [{:keys [collections no-write? version] :as db-spec} &amp; {:keys [only]}]
-  (doseq [[_ {:keys [coll-ref meta-file meta coll-dir name]}]
+  [{:keys [collections no-write?] :as db-spec} &amp; {:keys [only]}]
+  (doseq [[_ {:keys [coll-ref meta-file coll-file]}]
           (if only (select-keys collections only) collections)]
-    (when (and (not no-write?) (not (.exists coll-dir)))
-      (.mkdirs coll-dir))
+    (when (and (not no-write?) (not (.exists coll-file)))
+      (spit coll-file &quot;&quot;))
     (when (and (not no-write?) (not (.exists meta-file)))
-      (spit meta-file (pr-str @meta)))
+      (spit meta-file &quot;&quot;))
     (when (and meta-file (.exists meta-file))
       (dosync
-       (ref-set meta (load-form meta-file))
-       (doseq [id (:items @meta)]
-         (let [coll-file (-&gt; coll-dir (io/file (str id)) (io/file &quot;current&quot;))
-               {:keys [id] :as form} (load-form coll-file)]
-           (alter coll-ref assoc-in [:items id] form)))))))</pre></td></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(defn spit-record [file record]
-  (spit file
+       (ref-set coll-ref (load-file (.getCanonicalPath meta-file)))
+       (when (.exists coll-file)
+         (with-open [reader (java.io.PushbackReader. (io/reader coll-file))]
+           (loop []
+             (when-let [{:keys [id] :as form} (edn/read {:eof nil} reader)]
+               (do (alter coll-ref update-in [:items id] (fnil conj (list)) form)
+                   (recur))))))))))</pre></td></tr><tr><td class="docs">
+</td><td class="codes"><pre class="brush: clojure">(defn spit-record [coll-file record]
+  (spit coll-file
         (str (when (meta record) (str \^ (pr-str (meta record)) \space))
-             (prn-str record))))</pre></td></tr><tr><td class="docs"><p>Persists <code>coll</code> to permanent storage.</p>
+             (prn-str record))
+        :append true))</pre></td></tr><tr><td class="docs"><p>Persists <code>coll</code> to permanent storage.</p>
 </td><td class="codes"><pre class="brush: clojure">(defn write!
-  [{{n :count} :history :as x} db-spec coll-key {:keys [id] :as record}]
-  (let [{dir :coll-dir :keys [meta meta-file]} (-&gt; db-spec :collections coll-key)
-        count (or n 0)
-        record (some-&gt; record (assoc-in [:history :count] (inc count)))
-        record-dir (io/file dir (str id))]
-    (when-not (.exists record-dir) (.mkdirs record-dir))
-    (when x
-      (let [hist-dir (-&gt; record-dir (io/file &quot;history&quot;))]
-        (when-not (.exists hist-dir) (.mkdirs hist-dir))
-        (spit-record (io/file hist-dir (pr-str count)) x)))
-    (spit meta-file @meta)
-    (spit-record (-&gt; record-dir (io/file &quot;current&quot;)) record)
-    record))</pre></td></tr><tr><td class="docs"><p>Writes a <code>transaction</code> to durable storage.</p>
+  ([{:keys [no-write? path] :as db-spec} coll]
+     {:pre [(or no-write? path)]}
+     (write! db-spec coll nil))
+  ([{:keys [no-write? path collections] :as db-spec} coll record]
+     {:pre [(or no-write? path)]}
+     (when-not no-write?
+       (let [{:keys [coll-file meta-file coll-ref]} (coll collections)]
+         (.mkdir (io/file path))
+         (spit meta-file (pr-str (dissoc @coll-ref :items)))
+         (if record
+           (spit-record coll-file record)
+           (do (spit coll-file &quot;&quot;)
+               (doall
+                (map (partial spit-record coll-file)
+                     (apply concat (vals (:items @coll-ref)))))))))))</pre></td></tr><tr><td class="docs"><p>Writes a <code>transaction</code> to durable storage.</p>
 </td><td class="codes"><pre class="brush: clojure">(defn write-transaction!
   [{:keys [no-write? path] :as db-spec} {:keys [id inst name] :as transaction}]
   {:pre [(or no-write? path)
@@ -3036,14 +3021,13 @@ net.brehaut.ClojureTools = (function (SH) {
 </td><td class="codes"><pre class="brush: clojure">(defn get-id
   [db-spec coll]
   (let [coll (dbref db-spec coll)]
-    (dosync (-&gt; coll
-                (alter update-in [:last-id] (fnil inc -1))
-                (:last-id)))))</pre></td></tr><tr><td class="docs"><p>Gets an item from the collection by id.</p>
+    (dosync (alter coll update-in [:last-id] (fnil inc -1)))
+    (:last-id @coll)))</pre></td></tr><tr><td class="docs"><p>Gets an item from the collection by id.</p>
 </td><td class="codes"><pre class="brush: clojure">(defn get
   [db-spec coll id]
-  (let [match (-&gt; @(dbref db-spec coll) (get-in [:items id]))]
+  (let [match (-&gt; @(dbref db-spec coll) (get-in [:items id]) first)]
     (when-not (::deleted match) match)))</pre></td></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(defn created [db-spec coll id] ; TODO: get first history item
+</td><td class="codes"><pre class="brush: clojure">(defn created [db-spec coll id]
   (let [match (-&gt; @(dbref db-spec coll) (get-in [:items id]) last)]
     (when-not (::deleted match)
       (:inst match))))</pre></td></tr><tr><td class="docs"><p>Returns truthy if the predicate, pred matches the item. If the predicate is
@@ -3122,9 +3106,9 @@ net.brehaut.ClojureTools = (function (SH) {
 </code></pre>
 </td><td class="codes"><pre class="brush: clojure">(defn find
   [db-spec coll pred]
-  (-&gt;&gt; (vals (:items @(dbref db-spec coll)))
-       (filter (partial pred-match? pred))
-       (remove ::deleted)))</pre></td></tr><tr><td class="docs">
+  (remove ::deleted
+          (filter (partial pred-match? pred)
+                  (map (comp first val) (:items @(dbref db-spec coll))))))</pre></td></tr><tr><td class="docs">
 </td><td class="codes"><pre class="brush: clojure">(defmacro with-transaction [db-spec transaction &amp; body]
   `(do
      (if (clojure.lang.LockingTransaction/isRunning)
@@ -3153,14 +3137,13 @@ net.brehaut.ClojureTools = (function (SH) {
         id (or (:id m) (get-id db-spec coll))
         m (assoc m :id id :inst (java.util.Date.))]
     (dosync
+     (alter coll-ref update-in [:items id] (fnil conj (list)) m)
      (when-not exists?
        (if (integer? id)
-         (alter coll-ref update-in [:meta :last-id] (fnil max 0) id))
-       (alter coll-ref update-in [:meta :count] (fnil inc 0)))
-     (alter (-&gt; db-spec :collections coll :meta) update-in [:items] conj id)
-     (-&gt; coll-ref
-         (alter update-in [:items id] write! db-spec coll m)
-         (get-in [:items id])))))</pre></td></tr><tr><td class="docs"><p>'Updates' item with id <code>id</code> by applying fn <code>f</code> with <code>args</code>. The
+         (alter coll-ref update-in [:last-id] (fnil max 0) id))
+       (alter coll-ref update-in [:count] (fnil inc 0))))
+    (write! db-spec coll m)
+    m))</pre></td></tr><tr><td class="docs"><p>'Updates' item with id <code>id</code> by applying fn <code>f</code> with <code>args</code>. The
   item must exist in the collection to update it.</p>
 </td><td class="codes"><pre class="brush: clojure">(defn update!
   [db-spec coll id f &amp; args]
@@ -3176,21 +3159,15 @@ net.brehaut.ClojureTools = (function (SH) {
 </td><td class="codes"><pre class="brush: clojure">(defn destroy!
   [db-spec coll]
   (do (dosync (ref-set (dbref db-spec coll) {}))
-      (write! nil db-spec coll nil)))</pre></td></tr><tr><td class="docs"><p>Returns <code>n</code> items from the history of the record. If <code>n</code> is not specified,
+      (write! db-spec coll)))</pre></td></tr><tr><td class="docs"><p>Returns <code>n</code> items from the history of the record. If <code>n</code> is not specified,
   all history is returned</p>
 </td><td class="codes"><pre class="brush: clojure">(defn history
-  [db-spec coll {id :id :as record} &amp; [n]]
-  (assert (not (:no-write? db-spec))
-          &quot;History does not work without durable storage&quot;)
-  (let [coll-ref (dbref db-spec coll)
-        dir (-&gt; (get-in db-spec [:collections coll :coll-dir])
-                (io/file (str id))
-                (io/file &quot;history&quot;))
-        past (some-&gt;&gt; (get-in @coll-ref [:items id :history :count])
-                      (range 1)
-                      (reverse)
-                      (map (fn [i] (load-form (io/file dir (str i))))))]
-    (if n (take n past) past)))</pre></td></tr><tr><td class="docs"><p>Returns the <code>nth</code> last historical value for the record. If <code>n</code> is not
+  ([db-spec coll {id :id :as record} n]
+   (let [coll (dbref db-spec coll)
+         past (next (get-in @coll [:items id]))]
+     (if n (take n past) past)))
+  ([db-spec coll record]
+   (history db-spec coll record nil)))</pre></td></tr><tr><td class="docs"><p>Returns the <code>nth</code> last historical value for the record. If <code>n</code> is not
   specified, the latest historical value before the current value of the
   record. If record is a historical value, previous will return the latest
   <code>nth</code> value before it.</p>
@@ -3198,56 +3175,7 @@ net.brehaut.ClojureTools = (function (SH) {
   ([db-spec coll record n]
    (nth (history db-spec coll record) n))
   ([db-spec coll record]
-   (previous db-spec coll record 0)))</pre></td></tr><tr><td class="spacer docs">&nbsp;</td><td class="codes" /></tr><tr><td class="docs"><div class="docs-header"><a class="anchor" href="#refdb.internal.core" name="refdb.internal.core"><h1 class="project-name">refdb.internal.core</h1><a class="toc-link" href="#toc">toc</a></a></div></td><td class="codes" /></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(ns refdb.internal.core
-  (:require
-   [clojure.edn :as edn]
-   [clojure.java.io :as io]))</pre></td></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(defn load-form [file]
-  (when (.exists file)
-    (with-open [reader (java.io.PushbackReader. (io/reader file))]
-      (loop [out nil]
-        (if-let [form (edn/read {:eof nil} reader)]
-          (recur form)
-          out)))))</pre></td></tr><tr><td class="spacer docs">&nbsp;</td><td class="codes" /></tr><tr><td class="docs"><div class="docs-header"><a class="anchor" href="#refdb.migrate" name="refdb.migrate"><h1 class="project-name">refdb.migrate</h1><a class="toc-link" href="#toc">toc</a></a></div></td><td class="codes" /></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(ns refdb.migrate
-  (:require
-   [clojure.edn :as edn]
-   [clojure.java.io :as io]))</pre></td></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(defn spit-history [{{n :count} :history :as x} dir {:keys [id] :as record}]
-  (let [count (or n 0)
-        hist-dir (-&gt; dir (io/file id) (io/file &quot;history&quot;))
-        record (assoc-in record [:history :count] (inc count))]
-    (when-not (.exists hist-dir) (.mkdirs hist-dir))
-    (when x (spit (io/file hist-dir (pr-str count)) x))
-    (spit (-&gt; dir (io/file id) (io/file &quot;current&quot;)) record)
-    record))</pre></td></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(defmulti migrate! (fn [[from to] &amp; _] [from to]))</pre></td></tr><tr><td class="docs">
-</td><td class="codes"><pre class="brush: clojure">(defmethod migrate! [&quot;0.5&quot; &quot;0.6&quot;]
-  [_ {:keys [collections no-write? path] :as db-spec} &amp; {:keys [only]}]
-  (doseq [[_ {:keys [coll-ref meta-file coll-file coll-dir name] :as coll}]
-          (if only (select-keys collections only) collections)]
-    (when-not (.exists coll-dir) (.mkdirs coll-dir))
-    (when (and meta-file (.exists meta-file))
-      (dosync
-       (ref-set coll-ref {})
-       (when (.exists coll-file)
-         (with-open [reader (java.io.PushbackReader. (io/reader coll-file))]
-           (loop []
-             (when-let [{:keys [id] :as x} (edn/read {:eof nil} reader)]
-               (do
-                 (when (integer? id)
-                   (alter coll-ref update-in [:last-id] (fnil max 0) id))
-                 (when-not (get-in @coll-ref [:items id])
-                   (alter coll-ref update-in [:count] (fnil inc 0)))
-                 (alter coll-ref update-in [:items id] spit-history coll-dir x)
-                 (recur))))))
-       (let [ids (keys (:items @coll-ref))]
-         (spit (io/file coll-dir &quot;meta&quot;) {:items (set ids) :count (count ids)}))
-       (.delete coll-file)
-       (.delete meta-file))))
-  (spit (io/file path &quot;meta&quot;)
-        {:version &quot;0.6&quot; :collections (set (keys collections))}))</pre></td></tr><tr><td class="spacer docs">&nbsp;</td><td class="codes" /></tr></table><div class="footer">Generated by <a href="https://github.com/gdeer81/marginalia">Marginalia</a>.&nbsp;&nbsp;Syntax highlighting provided by Alex Gorbatchev's <a href="http://alexgorbatchev.com/SyntaxHighlighter/">SyntaxHighlighter</a><div id="floating-toc"><ul><li class="floating-toc-li" id="floating-toc_refdb.core">refdb.core</li><li class="floating-toc-li" id="floating-toc_refdb.internal.core">refdb.internal.core</li><li class="floating-toc-li" id="floating-toc_refdb.migrate">refdb.migrate</li></ul></div></div><script type="text/javascript">SyntaxHighlighter.defaults['gutter'] = false;
+   (previous db-spec coll record 0)))</pre></td></tr><tr><td class="spacer docs">&nbsp;</td><td class="codes" /></tr></table><div class="footer">Generated by <a href="https://github.com/gdeer81/marginalia">Marginalia</a>.&nbsp;&nbsp;Syntax highlighting provided by Alex Gorbatchev's <a href="http://alexgorbatchev.com/SyntaxHighlighter/">SyntaxHighlighter</a><div id="floating-toc"><ul><li class="floating-toc-li" id="floating-toc_refdb.core">refdb.core</li></ul></div></div><script type="text/javascript">SyntaxHighlighter.defaults['gutter'] = false;
 SyntaxHighlighter.all();
 
 // hackity hack
