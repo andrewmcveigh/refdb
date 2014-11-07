@@ -12,12 +12,29 @@
     (spit (-> dir (io/file id) (io/file "current")) record)
     record))
 
+(defn cp-r [source dest]
+  (let [ch-path (fn [source dest x]
+                  (.toFile
+                   (.resolve (.toPath dest)
+                             (.relativize (.toPath source) (.toPath x)))))
+        coll (->> (file-seq source)
+                 (remove #{source})
+                 (map (juxt identity (partial ch-path source dest))))
+        dirs (filter #(.isDirectory (first %)) coll)
+        files (remove #(.isDirectory (first %)) coll)]
+    (doseq [[_ dir] dirs] (.mkdirs dir))
+    (doseq [[old new] files] (io/copy old new))))
+
 (defmulti migrate! (fn [[from to] & _] [from to]))
 
 (defmethod migrate! ["0.5" "0.6"]
-  [_ {:keys [collections no-write? path] :as db-spec} & {:keys [only]}]
+  [_ {:keys [collections no-write? path] :as db-spec}]
+  (println "Performing migration from refdb v0.5 to v0.6")
+  (let [tmp (io/file path "_0.5")]
+    (println (format "Backing up data to %s\n" tmp))
+    (cp-r path tmp))
   (doseq [[_ {:keys [coll-ref meta-file coll-file coll-dir name] :as coll}]
-          (if only (select-keys collections only) collections)]
+          collections]
     (when-not (.exists coll-dir) (.mkdirs coll-dir))
     (when (and meta-file (.exists meta-file))
       (dosync
