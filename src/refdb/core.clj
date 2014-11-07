@@ -4,7 +4,10 @@
   (:require
    [clojure.edn :as edn]
    [clojure.java.io :as io]
-   [clojure.string :as string]))
+   [clojure.string :as string]
+   [refdb.internal.core :refer [load-form]]))
+
+(def refdb-version "0.6")
 
 (defrecord Collection [coll-file meta-file coll-ref name])
 
@@ -19,6 +22,10 @@
   (.write w (format "#<RefDB: \n  {:path %s\n   :collections %s}>"
                     (pr-str path)
                     (pr-str (map key collections)))))
+
+(defn db-version [{:keys [version] :as db-spec}]
+  (assert version "No version found, assume < 6.0")
+  version)
 
 (defn join-path [& args]
   {:pre [(every? (comp not nil?) args)]}
@@ -55,13 +62,25 @@
 (defn coerce-coll [x]
   (if (keyword? x) (map->Collection {:name (name x) :key x}) x))
 
-(defn collection [{:keys [path no-write?]} {:keys [name key] :as collection}]
+(defmulti collection (fn [{:keys [version]} & _] version))
+
+(defmethod collection "0.6"
+  [{:keys [path no-write? version]} {:keys [name key] :as collection}]
+  [key (merge collection
+              {:coll-ref (ref nil)
+               :meta (ref {:items #{} :count 0})}
+              (when path
+                {:coll-dir (io/file path name)
+                 :meta-file (-> path (io/file name) (io/file "meta"))}))])
+
+(defmethod collection "0.5"
+  [{:keys [path no-write? version]} {:keys [name key] :as collection}]
   [key (merge collection
               {:coll-ref (ref nil)}
               (when path
                 {:coll-file (io/file path (format "%s.clj" name))
-                 :meta-file
-                 (io/file path (format "%s.meta.clj" name))}))])
+                 :coll-dir (io/file path name)
+                 :meta-file (io/file path (format "%s.meta.clj" name))}))])
 
 (defn db-spec
   "Creates a db-spec. Takes a map of `opts`, `& collections`. `opts` must
@@ -72,7 +91,7 @@
 
     (db-spec {:path \"data\"} :cats :dogs)
 "
-  [{:keys [path no-write?] :as opts} & collections]
+  [{:keys [path no-write? version] :as opts} & collections]
   (let [path (cond (string? path)
                    (if-let [resource (io/resource path)]
                      (io/file resource)
@@ -80,12 +99,17 @@
                    (instance? java.net.URI path)
                    (io/file path)
                    :default path)
-        opts (assoc opts :path path)]
+        meta (io/file path "meta")
+        {:keys [version] :as meta}
+        (if (.exists meta)
+          (load-form meta)
+          {:version (or version "0.5") :collections (set (map :key collections))})
+        opts (assoc opts :path path :meta meta :version version)]
     (assert (or path no-write?)
             "Option `path`, or :no-write? must be specified.")
     (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
             "If `no-write?` not specified, option `path` must either
-be, or convert to a java.io.File, and it must exist.")
+            be, or convert to a java.io.File, and it must exist.")
     (map->RefDB
      (assoc opts
        :collections
@@ -103,46 +127,41 @@ be, or convert to a java.io.File, and it must exist.")
     (db/init! db-spec :only #{:cats})
 
 ... to only initialize some of them."
-  [{:keys [collections no-write?] :as db-spec} & {:keys [only]}]
-  (doseq [[_ {:keys [coll-ref meta-file coll-file]}]
+  [{:keys [collections no-write? version] :as db-spec} & {:keys [only]}]
+  (doseq [[_ {:keys [coll-ref meta-file meta coll-dir name]}]
           (if only (select-keys collections only) collections)]
-    (when (and (not no-write?) (not (.exists coll-file)))
-      (spit coll-file ""))
+    (when (and (not no-write?) (not (.exists coll-dir)))
+      (.mkdirs coll-dir))
     (when (and (not no-write?) (not (.exists meta-file)))
-      (spit meta-file ""))
+      (spit meta-file (pr-str @meta)))
     (when (and meta-file (.exists meta-file))
       (dosync
-       (ref-set coll-ref (load-file (.getCanonicalPath meta-file)))
-       (when (.exists coll-file)
-         (with-open [reader (java.io.PushbackReader. (io/reader coll-file))]
-           (loop []
-             (when-let [{:keys [id] :as form} (edn/read {:eof nil} reader)]
-               (do (alter coll-ref update-in [:items id] (fnil conj (list)) form)
-                   (recur))))))))))
+       (ref-set meta (load-form meta-file))
+       (doseq [id (:items @meta)]
+         (let [coll-file (-> coll-dir (io/file (str id)) (io/file "current"))
+               {:keys [id] :as form} (load-form coll-file)]
+           (alter coll-ref assoc-in [:items id] form)))))))
 
-(defn spit-record [coll-file record]
-  (spit coll-file
+(defn spit-record [file record]
+  (spit file
         (str (when (meta record) (str \^ (pr-str (meta record)) \space))
-             (prn-str record))
-        :append true))
+             (prn-str record))))
 
 (defn write!
   "Persists `coll` to permanent storage."
-  ([{:keys [no-write? path] :as db-spec} coll]
-     {:pre [(or no-write? path)]}
-     (write! db-spec coll nil))
-  ([{:keys [no-write? path collections] :as db-spec} coll record]
-     {:pre [(or no-write? path)]}
-     (when-not no-write?
-       (let [{:keys [coll-file meta-file coll-ref]} (coll collections)]
-         (.mkdir (io/file path))
-         (spit meta-file (pr-str (dissoc @coll-ref :items)))
-         (if record
-           (spit-record coll-file record)
-           (do (spit coll-file "")
-               (doall
-                (map (partial spit-record coll-file)
-                     (apply concat (vals (:items @coll-ref)))))))))))
+  [{{n :count} :history :as x} db-spec coll-key {:keys [id] :as record}]
+  (let [{dir :coll-dir :keys [meta meta-file]} (-> db-spec :collections coll-key)
+        count (or n 0)
+        record (some-> record (assoc-in [:history :count] (inc count)))
+        record-dir (io/file dir (str id))]
+    (when-not (.exists record-dir) (.mkdirs record-dir))
+    (when x
+      (let [hist-dir (-> record-dir (io/file "history"))]
+        (when-not (.exists hist-dir) (.mkdirs hist-dir))
+        (spit-record (io/file hist-dir (pr-str count)) x)))
+    (spit meta-file @meta)
+    (spit-record (-> record-dir (io/file "current")) record)
+    record))
 
 (defn write-transaction!
   "Writes a `transaction` to durable storage."
@@ -178,16 +197,17 @@ be, or convert to a java.io.File, and it must exist.")
   "Gets a the next available ID for the database."
   [db-spec coll]
   (let [coll (dbref db-spec coll)]
-    (dosync (alter coll update-in [:last-id] (fnil inc -1)))
-    (:last-id @coll)))
+    (dosync (-> coll
+                (alter update-in [:last-id] (fnil inc -1))
+                (:last-id)))))
 
 (defn get
   "Gets an item from the collection by id."
   [db-spec coll id]
-  (let [match (-> @(dbref db-spec coll) (get-in [:items id]) first)]
+  (let [match (-> @(dbref db-spec coll) (get-in [:items id]))]
     (when-not (::deleted match) match)))
 
-(defn created [db-spec coll id]
+(defn created [db-spec coll id] ; TODO: get first history item
   (let [match (-> @(dbref db-spec coll) (get-in [:items id]) last)]
     (when-not (::deleted match)
       (:inst match))))
@@ -270,9 +290,9 @@ be, or convert to a java.io.File, and it must exist.")
 
 "
   [db-spec coll pred]
-  (remove ::deleted
-          (filter (partial pred-match? pred)
-                  (map (comp first val) (:items @(dbref db-spec coll))))))
+  (->> (vals (:items @(dbref db-spec coll)))
+       (filter (partial pred-match? pred))
+       (remove ::deleted)))
 
 (defmacro with-transaction [db-spec transaction & body]
   `(do
@@ -305,13 +325,14 @@ be, or convert to a java.io.File, and it must exist.")
         id (or (:id m) (get-id db-spec coll))
         m (assoc m :id id :inst (java.util.Date.))]
     (dosync
-     (alter coll-ref update-in [:items id] (fnil conj (list)) m)
      (when-not exists?
        (if (integer? id)
-         (alter coll-ref update-in [:last-id] (fnil max 0) id))
-       (alter coll-ref update-in [:count] (fnil inc 0))))
-    (write! db-spec coll m)
-    m))
+         (alter coll-ref update-in [:meta :last-id] (fnil max 0) id))
+       (alter coll-ref update-in [:meta :count] (fnil inc 0)))
+     (alter (-> db-spec :collections coll :meta) update-in [:items] conj id)
+     (-> coll-ref
+         (alter update-in [:items id] write! db-spec coll m)
+         (get-in [:items id])))))
 
 (defn update!
   "'Updates' item with id `id` by applying fn `f` with `args`. The
@@ -332,17 +353,23 @@ be, or convert to a java.io.File, and it must exist.")
   "Resets the `coll`, and the file associated."
   [db-spec coll]
   (do (dosync (ref-set (dbref db-spec coll) {}))
-      (write! db-spec coll)))
+      (write! nil db-spec coll nil)))
 
 (defn history
   "Returns `n` items from the history of the record. If `n` is not specified,
   all history is returned"
-  ([db-spec coll {id :id :as record} n]
-   (let [coll (dbref db-spec coll)
-         past (next (get-in @coll [:items id]))]
-     (if n (take n past) past)))
-  ([db-spec coll record]
-   (history db-spec coll record nil)))
+  [db-spec coll {id :id :as record} & [n]]
+  (assert (not (:no-write? db-spec))
+          "History does not work without durable storage")
+  (let [coll-ref (dbref db-spec coll)
+        dir (-> (get-in db-spec [:collections coll :coll-dir])
+                (io/file (str id))
+                (io/file "history"))
+        past (some->> (get-in @coll-ref [:items id :history :count])
+                      (range 1)
+                      (reverse)
+                      (map (fn [i] (load-form (io/file dir (str i))))))]
+    (if n (take n past) past)))
 
 (defn previous
   "Returns the `nth` last historical value for the record. If `n` is not
@@ -353,4 +380,3 @@ be, or convert to a java.io.File, and it must exist.")
    (nth (history db-spec coll record) n))
   ([db-spec coll record]
    (previous db-spec coll record 0)))
-
