@@ -3,12 +3,6 @@
    [clojure.edn :as edn]
    [clojure.java.io :as io]))
 
-(defn history-spec [{:keys [coll-dir name]}]
-  (let [dir (-> coll-dir (io/file "history"))]
-    (when-not (.exists dir) (.mkdirs dir))
-    {:dir dir
-     :count (count (.listFiles dir))}))
-
 (defn spit-history [{{n :count} :history :as x} dir {:keys [id] :as record}]
   (let [count (or n 0)
         hist-dir (-> dir (io/file id) (io/file "history"))
@@ -20,7 +14,7 @@
 
 (defmulti migrate! (fn [[from to] & _] [from to]))
 
-(defmethod migrate! [0.5 0.6]
+(defmethod migrate! ["0.5" "0.6"]
   [_ {:keys [collections no-write? path] :as db-spec} & {:keys [only]}]
   (doseq [[_ {:keys [coll-ref meta-file coll-file coll-dir name] :as coll}]
           (if only (select-keys collections only) collections)]
@@ -44,4 +38,4 @@
        (.delete coll-file)
        (.delete meta-file))))
   (spit (io/file path "meta")
-        {:version 0.6 :collections (set (keys collections))}))
+        {:version "0.6" :collections (set (keys collections))}))
