@@ -20,6 +20,10 @@
                     (pr-str path)
                     (pr-str (map key collections)))))
 
+(defn db-version [{:keys [version] :as db-spec}]
+  (assert version "No version found, assume < 6.0")
+  version)
+
 (defn join-path [& args]
   {:pre [(every? (comp not nil?) args)]}
   (let [ensure-no-delims #(string/replace % #"(?:^/)|(?:/$)" "")]
@@ -55,13 +59,24 @@
 (defn coerce-coll [x]
   (if (keyword? x) (map->Collection {:name (name x) :key x}) x))
 
-(defn collection [{:keys [path no-write?]} {:keys [name key] :as collection}]
+(defmulti collection (fn [{:keys [version]} & _]))
+
+(defmethod collection 0.6
+  [{:keys [path no-write? version]} {:keys [name key] :as collection}]
+  [key (merge collection
+              {:coll-ref (ref nil)}
+              (when path
+                {:coll-dir (io/file path name)
+                 :meta-file (-> path (io/file name) (io/file "meta"))}))])
+
+(defmethod collection 0.5
+  [{:keys [path no-write? version]} {:keys [name key] :as collection}]
   [key (merge collection
               {:coll-ref (ref nil)}
               (when path
                 {:coll-file (io/file path (format "%s.clj" name))
-                 :meta-file
-                 (io/file path (format "%s.meta.clj" name))}))])
+                 :coll-dir (io/file path name)
+                 :meta-file (io/file path (format "%s.meta.clj" name))}))])
 
 (defn db-spec
   "Creates a db-spec. Takes a map of `opts`, `& collections`. `opts` must
@@ -80,12 +95,16 @@
                    (instance? java.net.URI path)
                    (io/file path)
                    :default path)
-        opts (assoc opts :path path)]
+        meta (io/file path "meta")
+        meta (if (.exists meta)
+               (load-file (.getCanonicalPath meta))
+               {:version 0.5 :collections (set collections)})
+        opts (assoc opts :path path :meta meta)]
     (assert (or path no-write?)
             "Option `path`, or :no-write? must be specified.")
     (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
             "If `no-write?` not specified, option `path` must either
-be, or convert to a java.io.File, and it must exist.")
+            be, or convert to a java.io.File, and it must exist.")
     (map->RefDB
      (assoc opts
        :collections
@@ -353,4 +372,3 @@ be, or convert to a java.io.File, and it must exist.")
    (nth (history db-spec coll record) n))
   ([db-spec coll record]
    (previous db-spec coll record 0)))
-
