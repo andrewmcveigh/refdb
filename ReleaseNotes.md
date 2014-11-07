@@ -1,3 +1,10 @@
+## v0.6.0
+
+- Implement refdb API for v0.6 storage
+- Enable versioned db-spec
+- Add migrate ns
+- Update readme version, add auto task
+
 ## v0.5.2
 
 - Update find docs/docstring
