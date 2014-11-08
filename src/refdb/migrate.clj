@@ -22,6 +22,7 @@
                  (map (juxt identity (partial ch-path source dest))))
         dirs (filter #(.isDirectory (first %)) coll)
         files (remove #(.isDirectory (first %)) coll)]
+    (when-not (.exists dest) (.mkdirs dest))
     (doseq [[_ dir] dirs] (.mkdirs dir))
     (doseq [[old new] files] (io/copy old new))))
 
