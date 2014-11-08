@@ -1,3 +1,7 @@
+## v0.6.2
+
+- Create dest if not exists
+
 ## v0.6.1
 
 - Migrate backs up dir first
