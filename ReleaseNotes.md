@@ -1,3 +1,7 @@
+## v0.6.3
+
+- Ensure id is str before getting id file/dir
+
 ## v0.6.2
 
 - Create dest if not exists
