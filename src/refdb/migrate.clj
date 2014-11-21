@@ -5,11 +5,11 @@
 
 (defn spit-history [{{n :count} :history :as x} dir {:keys [id] :as record}]
   (let [count (or n 0)
-        hist-dir (-> dir (io/file id) (io/file "history"))
+        hist-dir (-> dir (io/file (str id)) (io/file "history"))
         record (assoc-in record [:history :count] (inc count))]
     (when-not (.exists hist-dir) (.mkdirs hist-dir))
     (when x (spit (io/file hist-dir (pr-str count)) x))
-    (spit (-> dir (io/file id) (io/file "current")) record)
+    (spit (-> dir (io/file (str id)) (io/file "current")) record)
     record))
 
 (defn cp-r [source dest]
