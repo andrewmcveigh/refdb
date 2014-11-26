@@ -1,3 +1,7 @@
+## v0.6.4
+
+- Use *data-readers* when loading forms
+
 ## v0.6.3
 
 - Ensure id is str before getting id file/dir
