@@ -5,8 +5,7 @@
    [clojure.edn :as edn]
    [clojure.java.io :as io]
    [clojure.string :as string]
-   [refdb.internal.core :refer [load-form]]
-   [refdb.migrate :as migrate]))
+   [refdb.internal.core :refer [load-form]]))
 
 (def refdb-version "0.6")
 
@@ -73,6 +72,15 @@
 
 (defmulti collection (fn [{:keys [version]} & _] version))
 
+(defmethod collection "0.5"
+  [{:keys [path no-write? version]} {:keys [name key] :as collection}]
+  [key (merge collection
+              {:coll-ref (ref nil)}
+              (when path
+                {:coll-file (io/file path (format "%s.clj" name))
+                 :coll-dir (io/file path name)
+                 :meta-file (io/file path (format "%s.meta.clj" name))}))])
+
 (defmethod collection "0.6"
   [{:keys [path no-write? version]} {:keys [name key] :as collection}]
   [key (merge collection
@@ -82,14 +90,14 @@
                 {:coll-dir (io/file path name)
                  :meta-file (-> path (io/file name) (io/file "meta"))}))])
 
-(defmethod collection "0.5"
+(defmethod collection "0.7"
   [{:keys [path no-write? version]} {:keys [name key] :as collection}]
   [key (merge collection
-              {:coll-ref (ref nil)}
+              {:coll-ref (ref nil)
+               :meta (ref {:items #{} :count 0})}
               (when path
-                {:coll-file (io/file path (format "%s.clj" name))
-                 :coll-dir (io/file path name)
-                 :meta-file (io/file path (format "%s.meta.clj" name))}))])
+                {:coll-dir (io/file path name)
+                 :meta-file (-> path (io/file name) (io/file "meta"))}))])
 
 (defn db-spec
   "Creates a db-spec. Takes a map of `opts`, `& collections`. `opts` must
@@ -100,7 +108,7 @@
 
     (db-spec {:path \"data\"} :cats :dogs)
 "
-  [{:keys [path no-write? version] :as opts} & collections]
+  [{:keys [path no-write? version schema-version] :as opts} & collections]
   (let [path (cond (string? path)
                    (if-let [resource (io/resource path)]
                      (io/file resource)
@@ -109,11 +117,15 @@
                    (io/file path)
                    :default path)
         meta (io/file path "meta")
-        {:keys [version] :as meta}
+        {:keys [version schema-version] :as meta}
         (if (.exists meta)
           (load-form meta)
-          {:version (or version "0.5") :collections (set (map :key collections))})
-        opts (assoc opts :path path :version version)]
+          {:version (or version "0.5")
+           :collections (set (map :key collections))})
+        opts (assoc opts
+               :path path
+               :version version
+               :schema-version (or schema-version "1.0"))]
     (assert (or path no-write?)
             "Option `path`, or :no-write? must be specified.")
     (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
@@ -203,6 +215,16 @@
         (when form
           (if (= (:id form) t) form (recur (edn/read reader-opts r))))))))
 
+(defn created [db-spec coll id] ; TODO: get first history item
+  (let [match (-> @(dbref db-spec coll) (get-in [:items id]) last)]
+    (when-not (::deleted match)
+      (:inst match))))
+
+(defn meta->meta [{:keys [history inst] :as x}]
+  (-> x
+      (dissoc :history :inst)
+      (vary-meta assoc :history history :inst inst)))
+
 (defn get-id
   "Gets a the next available ID for the database."
   [db-spec coll]
@@ -215,12 +237,7 @@
   "Gets an item from the collection by id."
   [db-spec coll id]
   (let [match (-> @(dbref db-spec coll) (get-in [:items id]))]
-    (when-not (::deleted match) match)))
-
-(defn created [db-spec coll id] ; TODO: get first history item
-  (let [match (-> @(dbref db-spec coll) (get-in [:items id]) last)]
-    (when-not (::deleted match)
-      (:inst match))))
+    (when-not (::deleted match) (meta->meta match))))
 
 (defn pred-match?
   "Returns truthy if the predicate, pred matches the item. If the predicate is
@@ -302,7 +319,8 @@
   [db-spec coll pred]
   (->> (vals (:items @(dbref db-spec coll)))
        (filter (partial pred-match? pred))
-       (remove ::deleted)))
+       (remove ::deleted)
+       (map meta->meta)))
 
 (defmacro with-transaction [db-spec transaction & body]
   `(do
@@ -378,7 +396,8 @@
         past (some->> (get-in @coll-ref [:items id :history :count])
                       (range 1)
                       (reverse)
-                      (map (fn [i] (load-form (io/file dir (str i))))))]
+                      (map (fn [i] (load-form (io/file dir (str i)))))
+                      (map meta->meta))]
     (if n (take n past) past)))
 
 (defn previous
