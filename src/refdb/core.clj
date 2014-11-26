@@ -193,14 +193,15 @@
 (defn transaction [{:keys [path] :as db-spec} record]
   "Returns the `record`'s transaction."
   {:pre [(:transaction (meta record))]}
-  (let [t (:transaction (meta record))]
+  (let [t (:transaction (meta record))
+        reader-opts {:eof nil :readers *data-readers*}]
     (with-open [r (java.io.PushbackReader.
                    (io/reader
                     (io/file (join-path (transaction-dir db-spec)
                                         (transaction-file t)))))]
-      (loop [form (edn/read {:eof nil} r)]
+      (loop [form (edn/read reader-opts r)]
         (when form
-          (if (= (:id form) t) form (recur (edn/read {:eof nil} r))))))))
+          (if (= (:id form) t) form (recur (edn/read reader-opts r))))))))
 
 (defn get-id
   "Gets a the next available ID for the database."

@@ -7,6 +7,6 @@
   (when (.exists file)
     (with-open [reader (java.io.PushbackReader. (io/reader file))]
       (loop [out nil]
-        (if-let [form (edn/read {:eof nil} reader)]
+        (if-let [form (edn/read {:eof nil :readers *data-readers*} reader)]
           (recur form)
           out)))))
