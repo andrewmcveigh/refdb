@@ -215,11 +215,6 @@
         (when form
           (if (= (:id form) t) form (recur (edn/read reader-opts r))))))))
 
-(defn created [db-spec coll id] ; TODO: get first history item
-  (let [match (-> @(dbref db-spec coll) (get-in [:items id]) last)]
-    (when-not (::deleted match)
-      (:inst match))))
-
 (defn meta->meta [{:keys [history inst] :as x}]
   (-> x
       (dissoc :history :inst)
@@ -237,7 +232,7 @@
   "Gets an item from the collection by id."
   [db-spec coll id]
   (let [match (-> @(dbref db-spec coll) (get-in [:items id]))]
-    (when-not (::deleted match) (meta->meta match))))
+    (when-not (::deleted match) (when match (meta->meta match)))))
 
 (defn pred-match?
   "Returns truthy if the predicate, pred matches the item. If the predicate is

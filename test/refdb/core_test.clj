@@ -32,7 +32,7 @@
     (db/update! db-spec :coll1 1 assoc-in [:test1 :test2 :thsteh] 2)
     (db/update! db-spec :coll1 3 assoc-in [:test :test2 :thsteh] 2)
     (is (= {:id 3 :test {:test2 {:thsteh 2}}}
-           (dissoc (db/get db-spec :coll1 3) :inst :history)))))
+           (db/get db-spec :coll1 3)))))
 
 (deftest and-or-test
   (let [db-spec (db-spec)]
@@ -48,7 +48,7 @@
     (is (= 2 (count (db/find db-spec :coll1 (db/?or (db/?and {:m 4 :f 3})
                                                     (db/?and {:m 2 :f 1}))))))
     (is (= [{:m 3 :f 2 :e 4} {:m 4 :f 3 :e 5}]
-           (sort-by :m (map #(dissoc % :id :inst :history)
+           (sort-by :m (map #(dissoc % :id)
                             (db/find db-spec :coll1
                                      (db/?and (db/?or {:m 4 :f 2})
                                               (db/?or {:e 5 :m 3})))))))
@@ -62,15 +62,13 @@
       (db/save! db-spec :coll1 (assoc saved :a 2))
       (db/save! db-spec :coll1 (assoc saved :b 3))
       (is (= [{:id id :m 1 :a 2} {:id id :m 1}]
-             (map #(dissoc % :inst :history)
-                  (db/history db-spec :coll1 saved))))
+             (db/history db-spec :coll1 saved)))
       (is (= {:m 1 :a 2 :id id}
-             (dissoc (db/previous db-spec :coll1 saved) :inst :history)))
+             (db/previous db-spec :coll1 saved)))
       (dosync (ref-set (db/dbref db-spec :coll1) nil))
       (db/init! db-spec)
       (is (= [{:id id :m 1 :a 2} {:id id :m 1}]
-             (map #(dissoc % :inst :history)
-                  (db/history db-spec :coll1 (first (db/find db-spec :coll1 nil))))))
+             (db/history db-spec :coll1 (first (db/find db-spec :coll1 nil)))))
       (db/save! db-spec :coll1 {:ttt 33 :ff 88}))
     (db/destroy! db-spec :coll1)))
 
