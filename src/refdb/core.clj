@@ -118,14 +118,15 @@
                    :default path)
         meta (io/file path "meta")
         {:keys [version schema-version] :as meta}
-        (if (.exists meta)
-          (load-form meta)
-          {:version (or version "0.5")
-           :collections (set (map :key collections))})
+        (merge
+         {:version (or version "0.5")
+          :collections (set (map :key collections))
+          :schema-version (or schema-version "0.1")}
+         (when (.exists meta) (load-form meta)))
         opts (assoc opts
                :path path
                :version version
-               :schema-version (or schema-version "1.0"))]
+               :schema-version schema-version)]
     (assert (or path no-write?)
             "Option `path`, or :no-write? must be specified.")
     (assert (or (and (instance? java.io.File path) (.exists path)) no-write?)
@@ -232,7 +233,7 @@
   "Gets an item from the collection by id."
   [db-spec coll id]
   (let [match (-> @(dbref db-spec coll) (get-in [:items id]))]
-    (when-not (::deleted match) (when match (meta->meta match)))))
+    (when-not (::deleted match) match)))
 
 (defn pred-match?
   "Returns truthy if the predicate, pred matches the item. If the predicate is
@@ -314,8 +315,7 @@
   [db-spec coll pred]
   (->> (vals (:items @(dbref db-spec coll)))
        (filter (partial pred-match? pred))
-       (remove ::deleted)
-       (map meta->meta)))
+       (remove ::deleted)))
 
 (defmacro with-transaction [db-spec transaction & body]
   `(do
@@ -391,8 +391,7 @@
         past (some->> (get-in @coll-ref [:items id :history :count])
                       (range 1)
                       (reverse)
-                      (map (fn [i] (load-form (io/file dir (str i)))))
-                      (map meta->meta))]
+                      (map (fn [i] (load-form (io/file dir (str i))))))]
     (if n (take n past) past)))
 
 (defn previous

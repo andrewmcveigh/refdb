@@ -72,9 +72,12 @@
              (keys (:collections db-spec))))))
 
 (defn migrate-schema!
-  [{:keys [collections path schema-version] :as db-spec} collection transf]
-  (println (format "Performing schema-migration to version %s" schema-version))
-  (let [tmp (io/file path (format "_to-schema-%s" schema-version))]
+  [{:keys [collections path schema-version version] :as db-spec}
+   to-version collection transf]
+  (println
+   (format "Performing schema-migration from %s to version %s"
+           schema-version to-version))
+  (let [tmp (io/file path (format "_schema-%s" schema-version))]
     (println (format "Backing up data to %s\n" tmp))
     (cp-r path tmp))
   (let [{:keys [meta-file coll-dir] meta-atom :meta} (collections collection)]
@@ -91,4 +94,7 @@
         (doseq [h history]
           (let [h (transf h)]
             (db/spit-record
-             (io/file hist-dir (str (-> h meta :history :count))) h)))))))
+             (io/file hist-dir (str (-> h meta :history :count))) h))))))
+  (spit (io/file path "meta")
+        {:version "0.6" :collections (set (keys collections))
+         :schema-version to-version}))
