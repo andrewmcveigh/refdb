@@ -171,16 +171,17 @@
 
 (defn write!
   "Persists `coll` to permanent storage."
-  [{{n :count} :history :as x} db-spec coll-key {:keys [id] :as record}]
+  [previous db-spec coll-key {:keys [id] :as record}]
   (let [{dir :coll-dir :keys [meta meta-file]} (-> db-spec :collections coll-key)
-        count (or n 0)
-        record (some-> record (assoc-in [:history :count] (inc count)))
+        count (or (some-> previous clojure.core/meta :history :count) 0)
+        record (some-> record
+                       (vary-meta assoc-in [:history :count] (inc count)))
         record-dir (io/file dir (str id))]
     (when-not (.exists record-dir) (.mkdirs record-dir))
-    (when x
+    (when previous
       (let [hist-dir (-> record-dir (io/file "history"))]
         (when-not (.exists hist-dir) (.mkdirs hist-dir))
-        (spit-record (io/file hist-dir (pr-str count)) x)))
+        (spit-record (io/file hist-dir (pr-str count)) previous)))
     (spit meta-file @meta)
     (spit-record (-> record-dir (io/file "current")) record)
     record))
@@ -346,7 +347,9 @@
         exists? (or (:exists? (meta m))
                     (and (:id m) (get db-spec coll (:id m))))
         id (or (:id m) (get-id db-spec coll))
-        m (assoc m :id id :inst (java.util.Date.))]
+        m (some-> m
+                  (assoc :id id)
+                  (vary-meta assoc :inst (java.util.Date.)))]
     (dosync
      (when-not exists?
        (if (integer? id)
@@ -388,7 +391,7 @@
         dir (-> (get-in db-spec [:collections coll :coll-dir])
                 (io/file (str id))
                 (io/file "history"))
-        past (some->> (get-in @coll-ref [:items id :history :count])
+        past (some->> (-> (get db-spec coll id) meta :history :count)
                       (range 1)
                       (reverse)
                       (map (fn [i] (load-form (io/file dir (str i))))))]

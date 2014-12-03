@@ -4,6 +4,24 @@
    [clojure.java.io :as io]
    [refdb.core :as db]))
 
+(defmulti history
+  "Returns `n` items from the history of the record. If `n` is not specified,
+  all history is returned"
+  (fn [db-spec coll record & [n]] (:version db-spec)))
+
+(defmethod history "0.6" [db-spec coll {id :id :as record} & [n]]
+  (assert (not (:no-write? db-spec))
+          "History does not work without durable storage")
+  (let [coll-ref (dbref db-spec coll)
+        dir (-> (get-in db-spec [:collections coll :coll-dir])
+                (io/file (str id))
+                (io/file "history"))
+        past (some->> (get-in @coll-ref [:items id :history :count])
+                      (range 1)
+                      (reverse)
+                      (map (fn [i] (load-form (io/file dir (str i))))))]
+    (if n (take n past) past)))
+
 (defn spit-history [{{n :count} :history :as x} dir {:keys [id] :as record}]
   (let [count (or n 0)
         hist-dir (-> dir (io/file (str id)) (io/file "history"))
@@ -83,7 +101,7 @@
   (let [{:keys [meta-file coll-dir] meta-atom :meta} (collections collection)]
     (doseq [{:keys [id] :as x} (->> (db/find db-spec collection nil)
                                     (sort-by :id))]
-      (let [history (doall (db/history db-spec collection x))
+      (let [history (doall (history db-spec collection x))
             current (transf x)
             record-dir (io/file coll-dir (str id))
             hist-dir (-> record-dir (io/file "history"))]
