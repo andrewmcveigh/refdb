@@ -1,4 +1,4 @@
-(defproject com.andrewmcveigh/refdb "0.7.0-SNAPSHOT"
+(defproject com.andrewmcveigh/refdb "0.7.0-alpha.1"
   :description "File-backed ref-based \"database\""
   :url "http://github.com/andrewmcveigh/refdb"
   :license {:name "Eclipse Public License - v 1.0"
@@ -26,6 +26,6 @@
                   ["auto-release" "checkout-latest-tag"]
                   ["marg"]
                   ["auto-release" "update-marginalia-gh-pages"]]
-  :profiles {:dev {:plugins [[com.andrewmcveigh/lein-auto-release "0.1.9"]
+  :profiles {:dev {:plugins [[com.andrewmcveigh/lein-auto-release "0.1.10"]
                              [lein-marginalia "0.8.0"]]}
              :test {:dependencies [[prismatic/schema "0.3.1"]]}})
