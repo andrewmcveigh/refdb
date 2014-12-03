@@ -2,7 +2,8 @@
   (:require
    [clojure.edn :as edn]
    [clojure.java.io :as io]
-   [refdb.core :as db]))
+   [refdb.core :as db]
+   [refdb.internal.core :refer [load-form]]))
 
 (defmulti history
   "Returns `n` items from the history of the record. If `n` is not specified,
@@ -12,7 +13,7 @@
 (defmethod history "0.6" [db-spec coll {id :id :as record} & [n]]
   (assert (not (:no-write? db-spec))
           "History does not work without durable storage")
-  (let [coll-ref (dbref db-spec coll)
+  (let [coll-ref (db/dbref db-spec coll)
         dir (-> (get-in db-spec [:collections coll :coll-dir])
                 (io/file (str id))
                 (io/file "history"))
