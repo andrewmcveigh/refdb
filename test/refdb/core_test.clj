@@ -114,9 +114,9 @@
 
 (deftest generative-save!-write!-test
   (let [coll-dir (-> *db-spec* :collections :coll1 :coll-dir)
-        sample (gen/sample (gen/map gen/any gen/any) 50)
+        sample (gen/sample (gen/map gen/any gen/any) 20)
         sample-w-id (map #(assoc % :id 0) sample)
-        [[head] :as part] (partition 2 1 (take 10 sample-w-id))]
+        part (partition 2 1 (take 10 sample-w-id))]
     (db/init! *db-spec*)
     (doseq [m sample]
       (let [{:keys [id] :as saved} (db/save! *db-spec* :coll1 m)]
@@ -125,14 +125,13 @@
                               (io/file (str id))
                               (io/file "current")))))))
     (db/destroy! *db-spec* :coll1)
-    (db/save! *db-spec* :coll1 head)
+    (db/save! *db-spec* :coll1 (ffirst part))
     (doseq [[old new] part]
       (let [saved (db/save! *db-spec* :coll1 new)]
         (is (= old (db/previous *db-spec* :coll1 saved)))))
     (db/destroy! *db-spec* :coll1)
     (is (= (->> sample-w-id
                 (map #(db/save! *db-spec* :coll1 %))
-                (doall)
                 (last)
                 (db/history *db-spec* :coll1))
            (rest (reverse sample-w-id))))))
