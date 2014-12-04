@@ -28,4 +28,5 @@
                   ["auto-release" "update-marginalia-gh-pages"]]
   :profiles {:dev {:plugins [[com.andrewmcveigh/lein-auto-release "0.1.10"]
                              [lein-marginalia "0.8.0"]]}
-             :test {:dependencies [[prismatic/schema "0.3.1"]]}})
+             :test {:dependencies [[prismatic/schema "0.3.3"]
+                                  [org.clojure/test.check "0.6.1"]]}})

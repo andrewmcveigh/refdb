@@ -60,6 +60,9 @@
 (defn dbref [db-spec coll]
   (-> db-spec :collections coll :coll-ref))
 
+(defn coll-dir [db-spec coll]
+  (-> db-spec :collections coll :coll-dir))
+
 (defn with-schema [coll-kw schema valid-fn]
   (map->Collection
    {:name (name coll-kw)
@@ -379,7 +382,12 @@
   "Resets the `coll`, and the file associated."
   [db-spec coll]
   (do (dosync (ref-set (dbref db-spec coll) {}))
-      (write! nil db-spec coll nil)))
+      (let [f (coll-dir db-spec coll)]
+        (->> (file-seq f)
+             (remove #{f})
+             (reverse)
+             (map #(.delete %))
+             (doall)))))
 
 (defn history
   "Returns `n` items from the history of the record. If `n` is not specified,
@@ -403,6 +411,8 @@
   record. If record is a historical value, previous will return the latest
   `nth` value before it."
   ([db-spec coll record n]
-   (nth (history db-spec coll record) n))
+   (some-> (history db-spec coll record)
+           (seq)
+           (nth  n)))
   ([db-spec coll record]
    (previous db-spec coll record 0)))
