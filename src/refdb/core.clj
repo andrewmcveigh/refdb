@@ -228,10 +228,13 @@
 (defn get-id
   "Gets a the next available ID for the database."
   [db-spec coll]
-  (let [coll (dbref db-spec coll)]
-    (dosync (-> coll
-                (alter update-in [:last-id] (fnil inc -1))
-                (:last-id)))))
+  (let [meta (-> db-spec :collections coll :meta)]
+    (dosync
+     (-> meta
+         (alter update-in
+                [:last-id]
+                #(inc (or % (some->> @meta :items seq (apply max)) -1)))
+         (:last-id)))))
 
 (defn get
   "Gets an item from the collection by id."
@@ -347,6 +350,7 @@
   (assert (keyword? coll) "Argument `coll` must be a keyword, naming the coll.")
   (validate db-spec coll m)
   (let [coll-ref (dbref db-spec coll)
+        coll-meta (-> db-spec :collections coll :meta)
         exists? (or (:exists? (meta m))
                     (and (:id m) (get db-spec coll (:id m))))
         id (or (:id m) (get-id db-spec coll))
@@ -356,9 +360,9 @@
     (dosync
      (when-not exists?
        (if (integer? id)
-         (alter coll-ref update-in [:meta :last-id] (fnil max 0) id))
-       (alter coll-ref update-in [:meta :count] (fnil inc 0)))
-     (alter (-> db-spec :collections coll :meta) update-in [:items] conj id)
+         (alter coll-meta update-in [:last-id] (fnil max 0) id))
+       (alter coll-meta update-in [:count] (fnil inc 0)))
+     (alter coll-meta update-in [:items] conj id)
      (-> coll-ref
          (alter update-in [:items id] write! db-spec coll m)
          (get-in [:items id])))))
