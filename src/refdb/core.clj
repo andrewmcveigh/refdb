@@ -176,15 +176,17 @@
   "Persists `coll` to permanent storage."
   [previous db-spec coll-key {:keys [id] :as record}]
   (let [{dir :coll-dir :keys [meta meta-file]} (-> db-spec :collections coll-key)
-        count (or (some-> previous clojure.core/meta :history :count) 0)
+        record-dir (io/file dir (str id))
+        hist-dir (-> record-dir (io/file "history"))
+        count (or (some-> previous clojure.core/meta :history :count)
+                  (when (.exists hist-dir) (count (.listFiles hist-dir)))
+                  0)
         record (some-> record
-                       (vary-meta assoc-in [:history :count] (inc count)))
-        record-dir (io/file dir (str id))]
+                       (vary-meta assoc-in [:history :count] (inc count)))]
     (when-not (.exists record-dir) (.mkdirs record-dir))
     (when previous
-      (let [hist-dir (-> record-dir (io/file "history"))]
-        (when-not (.exists hist-dir) (.mkdirs hist-dir))
-        (spit-record (io/file hist-dir (pr-str count)) previous)))
+      (when-not (.exists hist-dir) (.mkdirs hist-dir))
+      (spit-record (io/file hist-dir (pr-str count)) previous))
     (spit meta-file @meta)
     (spit-record (-> record-dir (io/file "current")) record)
     record))
